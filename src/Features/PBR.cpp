@@ -7,44 +7,57 @@
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	PBR::Settings,
-	NonMetalGlossiness,
-	MetalGlossiness,
 	MinRoughness,
+	MiddleRoughness,
 	MaxRoughness,
 	NonMetalThreshold,
 	MetalThreshold,
-	SunShadowAO,
-	ParallaxAO,
-	ParallaxScale,
-	Exposure,
 	GrassRoughness,
-	GrassBentNormal,
-	FogIntensity,
+	GrassSpecular,
+	GrassAmbientSpecular,
+	GrassDiffuse,
+	WindIntensity,
+	WindScale,
+	Exposure,
+	SunIntensity,
+	SunShadowAO,
+	PointLightAttenuation,
+	PointLightIntensity,
 	AmbientDiffuse,
 	AmbientSpecular,
-	CubemapIntensity
+	AmbientSpecularClamp,
+	SpecularToF0,
+	CubemapToF0
 	)
 
 void PBR::DrawSettings()
 {
 	if (ImGui::TreeNodeEx("PBR Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
 
-		ImGui::SliderFloat("NonMetal Glossiness", &settings.NonMetalGlossiness, 0.0f, 0.01f);
-		ImGui::SliderFloat("Metal Glossiness", &settings.MetalGlossiness, 0.0f, 0.01f);
 		ImGui::SliderFloat("Min Roughness", &settings.MinRoughness, 0.0f, 1.0f);
+		ImGui::SliderFloat("Middle Roughness", &settings.MiddleRoughness, 0.0f, 1.0f);
 		ImGui::SliderFloat("Max Roughness", &settings.MaxRoughness, 0.0f, 1.0f);
 		ImGui::SliderFloat("NonMetal Threshold", &settings.NonMetalThreshold, 0.0f, 1.0f);
 		ImGui::SliderFloat("Metal Threshold", &settings.MetalThreshold, 0.0f, 1.0f);
-		ImGui::SliderFloat("Sun Shadow AO", &settings.SunShadowAO, 0.0f, 1.0f);
-		ImGui::SliderFloat("Parallax AO", &settings.ParallaxAO, 0.0f, 1.0f);
-		ImGui::SliderFloat("Parallax Scale", &settings.ParallaxScale, 0.0f, 0.5f);
-		ImGui::SliderFloat("Exposure", &settings.Exposure, 0.0f, 2.0f);
 		ImGui::SliderFloat("Grass Roughness", &settings.GrassRoughness, 0.0f, 1.0f);
-		ImGui::SliderFloat("Grass Bent Normal", &settings.GrassBentNormal, 0.0f, 1.0f);
-		ImGui::SliderFloat("Fog Intensity", &settings.FogIntensity, 0.0f, 1.0f);
+		ImGui::SliderFloat("Grass Specular", &settings.GrassSpecular, 0.0f, 1.0f);
+		ImGui::SliderFloat("Grass Ambient Specular", &settings.GrassAmbientSpecular, 0.0f, 1.0f);
+		ImGui::SliderFloat("Grass Diffuse", &settings.GrassDiffuse, 0.0f, 1.0f);
+		ImGui::SliderFloat("Wind Intensity", &settings.WindIntensity, 0.0f, 1.0f);
+		ImGui::SliderFloat("Wind Scale", &settings.WindScale, 0.0f, 1.0f);
+		ImGui::SliderFloat("Exposure", &settings.Exposure, 0.0f, 2.0f);
+		ImGui::SliderFloat("Sun Intensity", &settings.SunIntensity, 0.0f, 2.0f);
+		ImGui::SliderFloat("Sun Shadow AO", &settings.SunShadowAO, 0.0f, 1.0f);
+		ImGui::SliderFloat("PointLight Attenuation", &settings.PointLightAttenuation, 0.0f, 2.0f);
+		ImGui::SliderFloat("PointLight Intensity", &settings.PointLightIntensity, 0.0f, 2.0f);
 		ImGui::SliderFloat("Ambient Diffuse", &settings.AmbientDiffuse, 0.0f, 2.0f);
 		ImGui::SliderFloat("Ambient Specular", &settings.AmbientSpecular, 0.0f, 2.0f);
-		ImGui::SliderFloat("Cubemap Intensity", &settings.CubemapIntensity, 0.0f, 10.0f);
+		ImGui::SliderFloat("Ambient Specular Clamp", &settings.AmbientSpecularClamp, 0.0f, 2.0f);
+		ImGui::SliderFloat("Specular To F0", &settings.SpecularToF0, 0.0f, 2.0f);
+		ImGui::SliderFloat("Cubemap To F0", &settings.CubemapToF0, 0.0f, 2.0f);
+		ImGui::SliderFloat("Direct Diffuse", &settings.DirectDiffuse, 0.0f, 2.0f);
+		ImGui::SliderFloat("Direct Specular", &settings.DirectSpecular, 0.0f, 2.0f);
+
 
 		ImGui::TreePop();
 	}
@@ -57,9 +70,9 @@ void PBR::ModifyLighting(const RE::BSShader*, const uint32_t)
 	if (updatePerFrame) {
 		PerFrame perFrameData{};
 		ZeroMemory(&perFrameData, sizeof(perFrameData));
-		//获取渲染设置
+
 		perFrameData.Settings = settings;
-		//获取相机位置
+
 		auto accumulator = RE::BSGraphics::BSShaderAccumulator::GetCurrentAccumulator();
 		auto& position = accumulator->GetRuntimeData().eyePosition;
 		auto state = RE::BSGraphics::RendererShadowState::GetSingleton();
@@ -75,16 +88,28 @@ void PBR::ModifyLighting(const RE::BSShader*, const uint32_t)
 		perFrameData.EyePosition.y = position.y - eyePosition.y;
 		perFrameData.EyePosition.z = position.z - eyePosition.z;
 
+    	if (auto sky = RE::Sky::GetSingleton())
+        	perFrameData.Settings.outdoor = sky->mode.get() == RE::Sky::Mode::kFull;
+
+		auto sunLight = skyrim_cast<RE::NiDirectionalLight*>(accumulator->GetRuntimeData().activeShadowSceneNode->GetRuntimeData().sunLight->light.get());
+		if (sunLight) {
+			auto& direction = sunLight->GetWorldDirection();
+			perFrameData.DirLightDirection.x = direction.x;
+			perFrameData.DirLightDirection.y = direction.y;
+			perFrameData.DirLightDirection.z = direction.z;
+		}
+
 		perFrame->Update(perFrameData);
 		updatePerFrame = false;
 	}
 
+	Clustered::GetSingleton()->Bind(true);
 	auto context = RE::BSGraphics::Renderer::GetSingleton()->GetRuntimeData().context;
 
 	ID3D11Buffer* buffers[1];
 	buffers[0] = perFrame->CB();
-	context->VSSetConstantBuffers(5, 1, buffers);
-	context->PSSetConstantBuffers(5, 1, buffers);
+	context->VSSetConstantBuffers(6, 1, buffers);
+	context->PSSetConstantBuffers(6, 1, buffers);
 }
 
 void PBR::Draw(const RE::BSShader* shader, const uint32_t descriptor)

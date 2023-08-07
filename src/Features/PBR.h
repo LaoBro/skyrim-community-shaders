@@ -16,27 +16,36 @@ struct PBR : Feature
 
 	struct Settings
 	{	
-		float NonMetalGlossiness = 0.005f;
-		float MetalGlossiness = 0.009f;
-		float MinRoughness = 0.1f;
-		float MaxRoughness = 0.7f;
+		std::uint32_t outdoor =  1;
+		float MinRoughness = 0.3f;
+		float MiddleRoughness = 0.6f;
+		float MaxRoughness = 1.0f;
 		float NonMetalThreshold = 0.1f;
 		float MetalThreshold = 0.2f;
-		float SunShadowAO = 0.7f;
-		float ParallaxAO = 0.5f;
-		float ParallaxScale = 0.08f;
+		float GrassRoughness = 0.9f;
+		float GrassSpecular = 1.0f;
+		float GrassAmbientSpecular = 0.2f;
+		float GrassDiffuse = 0.3f;
+		float WindIntensity = 0.15f;
+		float WindScale = 0.15f;
 		float Exposure = 1.0f;
-		float GrassRoughness = 0.7f;
-		float GrassBentNormal = 1.0f;
-		float FogIntensity = 0.0f;
+		float SunIntensity = 1.0f;
+		float SunShadowAO = 1.0f;
+		float PointLightAttenuation = 1.0f;
+		float PointLightIntensity = 1.0f;
 		float AmbientDiffuse = 1.0f;
 		float AmbientSpecular = 1.0f;
-		float CubemapIntensity = 1.0f;
+		float AmbientSpecularClamp = 1.0f;
+		float SpecularToF0 = 0.5f;
+		float CubemapToF0 = 1.0f;
+		float DirectDiffuse = 1.0f;
+		float DirectSpecular = 1.0f;
 	};
 
 	struct alignas(16) PerFrame
 	{	
 		DirectX::XMFLOAT4 EyePosition;
+		DirectX::XMFLOAT4 DirLightDirection;
 		Settings Settings;
 	};
 
