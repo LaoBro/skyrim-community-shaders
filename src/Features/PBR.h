@@ -17,29 +17,29 @@ struct PBR : Feature
 	struct Settings
 	{	
 		std::uint32_t outdoor =  1;
-		float MinRoughness = 0.3f;
+		float MinRoughness = 0.2f;
 		float MiddleRoughness = 0.6f;
 		float MaxRoughness = 1.0f;
+		float GlossinessScale = 1.0f;
 		float NonMetalThreshold = 0.1f;
 		float MetalThreshold = 0.2f;
+		float GrassBentNormal = 0.2f;
 		float GrassRoughness = 0.9f;
-		float GrassSpecular = 1.0f;
-		float GrassAmbientSpecular = 0.2f;
+		float GrassSpecular = 0.5f;
 		float GrassDiffuse = 0.3f;
 		float WindIntensity = 0.15f;
-		float WindScale = 0.15f;
+		float WindSpeed = 0.15f;
 		float Exposure = 1.0f;
-		float SunIntensity = 1.0f;
-		float SunShadowAO = 1.0f;
 		float PointLightAttenuation = 1.0f;
 		float PointLightIntensity = 1.0f;
 		float AmbientDiffuse = 1.0f;
 		float AmbientSpecular = 1.0f;
-		float AmbientSpecularClamp = 1.0f;
 		float SpecularToF0 = 0.5f;
 		float CubemapToF0 = 1.0f;
-		float DirectDiffuse = 1.0f;
-		float DirectSpecular = 1.0f;
+		float DiffuseRimLighting = 1.0f;
+		float SpecularRimLighting = 1.0f;
+		float SoftLighting = 0.0f;
+		float WaterRoughness = 0.3;
 	};
 
 	struct alignas(16) PerFrame
