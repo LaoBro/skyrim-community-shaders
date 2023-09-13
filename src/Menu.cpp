@@ -9,6 +9,7 @@
 
 #include "Feature.h"
 #include "Features/ExtendedMaterials.h"
+#include "Features/LightLimitFix/ParticleLights.h"
 #include "Features/ScreenSpaceShadows.h"
 #include "Features/WaterBlending.h"
 
@@ -298,6 +299,7 @@ void Menu::DrawSettings()
 			ImGui::TableNextColumn();
 			if (ImGui::Button("Load Settings", { -1, 0 })) {
 				State::GetSingleton()->Load();
+				ParticleLights::GetSingleton()->GetConfigs();
 			}
 
 			ImGui::TableNextColumn();
@@ -330,10 +332,73 @@ void Menu::DrawSettings()
 				ImGui::EndTooltip();
 			}
 
+			if (shaderCache.GetFailedTasks()) {
+				ImGui::TableNextRow();
+				ImGui::TableNextColumn();
+				if (ImGui::Button("Toggle Error Message", { -1, 0 })) {
+					shaderCache.ToggleErrorMessages();
+				}
+				if (ImGui::IsItemHovered()) {
+					ImGui::BeginTooltip();
+					ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+					ImGui::Text(
+						"Hide or show the shader failure message. "
+						"Your installation is broken and will likely see errors in game. "
+						"Please double check you have updated all features and that your load order is correct. "
+						"See CommunityShaders.log for details and check the NexusMods page or Discord server. ");
+					ImGui::PopTextWrapPos();
+					ImGui::EndTooltip();
+				}
+			}
 			ImGui::EndTable();
 		}
 
 		ImGui::Spacing();
+
+		if (ImGui::CollapsingHeader("General", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick)) {
+			bool useCustomShaders = shaderCache.IsEnabled();
+			if (ImGui::BeginTable("##GeneralToggles", 3, ImGuiTableFlags_SizingStretchSame)) {
+				ImGui::TableNextColumn();
+				if (ImGui::Checkbox("Enable Shaders", &useCustomShaders)) {
+					shaderCache.SetEnabled(useCustomShaders);
+				}
+				if (ImGui::IsItemHovered()) {
+					ImGui::BeginTooltip();
+					ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+					ImGui::Text("Disabling this effectively disables all features.");
+					ImGui::PopTextWrapPos();
+					ImGui::EndTooltip();
+				}
+
+				bool useDiskCache = shaderCache.IsDiskCache();
+				ImGui::TableNextColumn();
+				if (ImGui::Checkbox("Enable Disk Cache", &useDiskCache)) {
+					shaderCache.SetDiskCache(useDiskCache);
+				}
+				if (ImGui::IsItemHovered()) {
+					ImGui::BeginTooltip();
+					ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+					ImGui::Text("Disabling this stops shaders from being loaded from disk, as well as stops shaders from being saved to it.");
+					ImGui::PopTextWrapPos();
+					ImGui::EndTooltip();
+				}
+
+				bool useAsync = shaderCache.IsAsync();
+				ImGui::TableNextColumn();
+				if (ImGui::Checkbox("Enable Async", &useAsync)) {
+					shaderCache.SetAsync(useAsync);
+				}
+				if (ImGui::IsItemHovered()) {
+					ImGui::BeginTooltip();
+					ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+					ImGui::Text("Skips a shader being replaced if it hasn't been compiled yet. Also makes compilation blazingly fast!");
+					ImGui::PopTextWrapPos();
+					ImGui::EndTooltip();
+				}
+
+				ImGui::EndTable();
+			}
+		}
 
 		if (ImGui::CollapsingHeader("Menu", ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick)) {
 			if (settingToggleKey) {
@@ -408,50 +473,21 @@ void Menu::DrawSettings()
 				ImGui::PopTextWrapPos();
 				ImGui::EndTooltip();
 			}
-		}
-
-		if (ImGui::CollapsingHeader("General", ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick)) {
-			bool useCustomShaders = shaderCache.IsEnabled();
-			if (ImGui::BeginTable("##GeneralToggles", 3, ImGuiTableFlags_SizingStretchSame)) {
-				ImGui::TableNextColumn();
-				if (ImGui::Checkbox("Enable Shaders", &useCustomShaders)) {
-					shaderCache.SetEnabled(useCustomShaders);
-				}
-				if (ImGui::IsItemHovered()) {
-					ImGui::BeginTooltip();
-					ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
-					ImGui::Text("Disabling this effectively disables all features.");
-					ImGui::PopTextWrapPos();
-					ImGui::EndTooltip();
-				}
-
-				bool useDiskCache = shaderCache.IsDiskCache();
-				ImGui::TableNextColumn();
-				if (ImGui::Checkbox("Enable Disk Cache", &useDiskCache)) {
-					shaderCache.SetDiskCache(useDiskCache);
-				}
-				if (ImGui::IsItemHovered()) {
-					ImGui::BeginTooltip();
-					ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
-					ImGui::Text("Disabling this stops shaders from being loaded from disk, as well as stops shaders from being saved to it.");
-					ImGui::PopTextWrapPos();
-					ImGui::EndTooltip();
-				}
-
-				bool useAsync = shaderCache.IsAsync();
-				ImGui::TableNextColumn();
-				if (ImGui::Checkbox("Enable Async", &useAsync)) {
-					shaderCache.SetAsync(useAsync);
-				}
-				if (ImGui::IsItemHovered()) {
-					ImGui::BeginTooltip();
-					ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
-					ImGui::Text("Skips a shader being replaced if it hasn't been compiled yet. Also makes compilation blazingly fast!");
-					ImGui::PopTextWrapPos();
-					ImGui::EndTooltip();
-				}
-
-				ImGui::EndTable();
+			ImGui::Spacing();
+			ImGui::SliderInt("Compiler Threads", &shaderCache.compilationThreadCount, 1, static_cast<int32_t>(std::thread::hardware_concurrency()));
+			if (ImGui::IsItemHovered()) {
+				ImGui::BeginTooltip();
+				ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+				ImGui::Text(
+					"Number of threads to compile shaders with. "
+					"The more threads the faster compilation will finish but may make the system unresponsive. "
+					"This should only be changed between restarts. ");
+				ImGui::PopTextWrapPos();
+				ImGui::EndTooltip();
+			}
+			if (ImGui::TreeNodeEx("Statistics", ImGuiTreeNodeFlags_DefaultOpen)) {
+				ImGui::Text(std::format("Shader Compiler : {}", shaderCache.GetShaderStatsString()).c_str());
+				ImGui::TreePop();
 			}
 		}
 
@@ -486,9 +522,12 @@ void Menu::DrawSettings()
 			ImGui::TableNextColumn();
 			if (ImGui::BeginListBox("##FeatureList", { -FLT_MIN, -FLT_MIN })) {
 				for (size_t i = 0; i < featureList.size(); i++)
-					if (featureList[i]->loaded)
-						if (ImGui::Selectable(featureList[i]->GetName().c_str(), selectedFeature == i))
+					if (featureList[i]->loaded) {
+						if (ImGui::Selectable(fmt::format("{} ", featureList[i]->GetName()).c_str(), selectedFeature == i, ImGuiSelectableFlags_SpanAllColumns))
 							selectedFeature = i;
+						ImGui::SameLine();
+						ImGui::TextDisabled(fmt::format("({})", featureList[i]->version).c_str());
+					}
 				ImGui::EndListBox();
 			}
 
@@ -532,7 +571,10 @@ void Menu::DrawOverlay()
 	compiledShaders = shaderCache.GetCompletedTasks();
 	totalShaders = shaderCache.GetTotalTasks();
 
-	if (compiledShaders != totalShaders) {
+	auto failed = shaderCache.GetFailedTasks();
+	auto hide = shaderCache.IsHideErrors();
+	auto stats = shaderCache.GetShaderStatsString();
+	if (shaderCache.IsCompiling()) {
 		ImGui::SetNextWindowBgAlpha(1);
 		ImGui::SetNextWindowPos(ImVec2(10, 10));
 		if (!ImGui::Begin("ShaderCompilationInfo", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings)) {
@@ -540,8 +582,19 @@ void Menu::DrawOverlay()
 			return;
 		}
 
-		ImGui::Text("Compiling Shaders: %d / %d", compiledShaders, totalShaders);
+		ImGui::Text(fmt::format("Compiling Shaders: {}", stats).c_str());
 
+		ImGui::End();
+	} else if (failed && !hide) {
+		ImGui::SetNextWindowBgAlpha(1);
+		ImGui::SetNextWindowPos(ImVec2(10, 10));
+		if (!ImGui::Begin("ShaderCompilationInfo", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings)) {
+			ImGui::End();
+			return;
+		}
+
+		ImGui::Text("ERROR: %d shaders failed to compile. Check installation and CommunityShaders.log", failed, totalShaders);
+		ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255));
 		ImGui::End();
 	}
 

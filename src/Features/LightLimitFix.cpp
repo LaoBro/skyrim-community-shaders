@@ -1,7 +1,5 @@
 #include "LightLimitFix.h"
 
-#include <numbers>
-
 #include <PerlinNoise.hpp>
 
 #include "State.h"
@@ -18,7 +16,6 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	LightLimitFix::Settings,
 	EnableContactShadows,
 	EnableFirstPersonShadows,
-	EnableLightsVisualisation,
 	EnableParticleLights,
 	EnableParticleLightsCulling,
 	EnableParticleLightsDetection,
@@ -29,39 +26,127 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 
 void LightLimitFix::DrawSettings()
 {
-	if (ImGui::TreeNodeEx("Miscellaneous", ImGuiTreeNodeFlags_DefaultOpen)) {
-		ImGui::TextWrapped("All lights cast small shadows. Performance impact.");
+	if (ImGui::TreeNodeEx("Particle Lights", ImGuiTreeNodeFlags_DefaultOpen)) {
+		ImGui::Checkbox("Enable Particle Lights", &settings.EnableParticleLights);
+		if (ImGui::IsItemHovered()) {
+			ImGui::BeginTooltip();
+			ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+			ImGui::Text("Enables Particle Lights.");
+			ImGui::PopTextWrapPos();
+			ImGui::EndTooltip();
+		}
+
+		ImGui::Checkbox("Enable Culling", &settings.EnableParticleLightsCulling);
+		if (ImGui::IsItemHovered()) {
+			ImGui::BeginTooltip();
+			ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+			ImGui::Text("Significantly improves performance by not rendering empty textures. Only disable if you are encountering issues.");
+			ImGui::PopTextWrapPos();
+			ImGui::EndTooltip();
+		}
+
+		ImGui::Checkbox("Enable Detection", &settings.EnableParticleLightsDetection);
+		if (ImGui::IsItemHovered()) {
+			ImGui::BeginTooltip();
+			ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+			ImGui::Text("Adds particle lights to the player light level, so that NPCs can detect them for stealth and gameplay.");
+			ImGui::PopTextWrapPos();
+			ImGui::EndTooltip();
+		}
+
+		ImGui::Checkbox("Enable Optimization", &settings.EnableParticleLightsOptimization);
+		if (ImGui::IsItemHovered()) {
+			ImGui::BeginTooltip();
+			ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+			ImGui::Text("Merges vertices which are close enough to each other to significantly improve performance.");
+			ImGui::PopTextWrapPos();
+			ImGui::EndTooltip();
+		}
+		ImGui::SliderInt("Optimisation Cluster Radius", (int*)&settings.ParticleLightsOptimisationClusterRadius, 1, 64);
+		if (ImGui::IsItemHovered()) {
+			ImGui::BeginTooltip();
+			ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+			ImGui::Text("Radius to use for clustering lights.");
+			ImGui::PopTextWrapPos();
+			ImGui::EndTooltip();
+		}
+		ImGui::Spacing();
+		ImGui::Spacing();
+
+		ImGui::TextWrapped("Particle Lights Color");
+		ImGui::SliderFloat("Brightness", &settings.ParticleLightsBrightness, 0.0, 1.0, "%.2f");
+		if (ImGui::IsItemHovered()) {
+			ImGui::BeginTooltip();
+			ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+			ImGui::Text("Particle light brightness.");
+			ImGui::PopTextWrapPos();
+			ImGui::EndTooltip();
+		}
+
+		ImGui::SliderFloat("Saturation", &settings.ParticleLightsSaturation, 1.0, 2.0, "%.2f");
+		if (ImGui::IsItemHovered()) {
+			ImGui::BeginTooltip();
+			ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+			ImGui::Text("Particle light saturation.");
+			ImGui::PopTextWrapPos();
+			ImGui::EndTooltip();
+		}
+
+		ImGui::Spacing();
+		ImGui::Spacing();
+		ImGui::TreePop();
+	}
+
+	if (ImGui::TreeNodeEx("Shadows", ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::Checkbox("Enable Contact Shadows", &settings.EnableContactShadows);
+		if (ImGui::IsItemHovered()) {
+			ImGui::BeginTooltip();
+			ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+			ImGui::Text("All lights cast small shadows. Performance impact.");
+			ImGui::PopTextWrapPos();
+			ImGui::EndTooltip();
+		}
 
-		ImGui::TextWrapped("Torches and light spells will cast shadows in first-person. Performance impact.");
 		ImGui::Checkbox("Enable First-Person Shadows", &settings.EnableFirstPersonShadows);
+		if (ImGui::IsItemHovered()) {
+			ImGui::BeginTooltip();
+			ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+			ImGui::Text("Torches and light spells will cast shadows in first-person. Performance impact.");
+			ImGui::PopTextWrapPos();
+			ImGui::EndTooltip();
+		}
 
-		ImGui::TextWrapped("- Visualise the light limit; Red when the \"strict\" light limit is reached (portal-strict lights).\n - Visualise the number of strict lights. \n - Visualise the number of clustered lights.");
+		ImGui::Spacing();
+		ImGui::Spacing();
+		ImGui::TreePop();
+	}
+
+	if (ImGui::TreeNodeEx("Light Limit Visualization", ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::Checkbox("Enable Lights Visualisation", &settings.EnableLightsVisualisation);
+		if (ImGui::IsItemHovered()) {
+			ImGui::BeginTooltip();
+			ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+			ImGui::Text("Enables visualization of the light limit\n");
+			ImGui::PopTextWrapPos();
+			ImGui::EndTooltip();
+		}
 
 		{
 			static const char* comboOptions[] = { "Light Limit", "Strict Lights Count", "Clustered Lights Count" };
 			ImGui::Combo("Lights Visualisation Mode", (int*)&settings.LightsVisualisationMode, comboOptions, 3);
+			if (ImGui::IsItemHovered()) {
+				ImGui::BeginTooltip();
+				ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+				ImGui::Text(" - Visualise the light limit. Red when the \"strict\" light limit is reached (portal-strict lights).\n");
+				ImGui::Text(" - Visualise the number of strict lights. \n");
+				ImGui::Text(" - Visualise the number of clustered lights.");
+				ImGui::PopTextWrapPos();
+				ImGui::EndTooltip();
+			}
 		}
 
-		ImGui::TreePop();
-	}
-
-	if (ImGui::TreeNodeEx("Particle Lights", ImGuiTreeNodeFlags_DefaultOpen)) {
-		ImGui::Checkbox("Enable Particle Lights", &settings.EnableParticleLights);
-		ImGui::TextWrapped("Significantly improves performance by not rendering empty textures. Only disable if you are encountering issues.");
-		ImGui::Checkbox("Enable Culling", &settings.EnableParticleLightsCulling);
-
-		ImGui::TextWrapped("Adds particle lights to the player light level, so that NPCs can detect them for stealth and gameplay.");
-		ImGui::Checkbox("Enable Detection", &settings.EnableParticleLightsDetection);
-
-		ImGui::SliderFloat("Brightness", &settings.ParticleLightsBrightness, 0.0, 1.0, "%.2f");
-		ImGui::SliderFloat("Saturation", &settings.ParticleLightsSaturation, 1.0, 2.0, "%.2f");
-
-		ImGui::TextWrapped("Merges vertices which are close enough to each other to significantly improve performance.");
-		ImGui::Checkbox("Enable Optimization", &settings.EnableParticleLightsOptimization);
-		ImGui::SliderInt("Optimisation Cluster Radius", (int*)&settings.ParticleLightsOptimisationClusterRadius, 1, 64);
-
+		ImGui::Spacing();
+		ImGui::Spacing();
 		ImGui::TreePop();
 	}
 
@@ -492,7 +577,7 @@ float LightLimitFix::CalculateLightDistance(float3 a_lightPosition, float a_radi
 	return (a_lightPosition.x * a_lightPosition.x) + (a_lightPosition.y * a_lightPosition.y) + (a_lightPosition.z * a_lightPosition.z) - (a_radius * a_radius);
 }
 
-bool LightLimitFix::AddCachedParticleLights(eastl::vector<LightData>& lightsData, LightLimitFix::LightData& light, int a_eyeIndex, ParticleLights::Config* a_config, RE::BSGeometry* a_geometry, double a_timer)
+bool LightLimitFix::AddCachedParticleLights(eastl::vector<LightData>& lightsData, LightLimitFix::LightData& light, ParticleLights::Config* a_config, RE::BSGeometry* a_geometry, double a_timer)
 {
 	static float& lightFadeStart = (*(float*)RELOCATION_ID(527668, 414582).address());
 	static float& lightFadeEnd = (*(float*)RELOCATION_ID(527669, 414583).address());
@@ -509,7 +594,7 @@ bool LightLimitFix::AddCachedParticleLights(eastl::vector<LightData>& lightsData
 		dimmer = 0.0f;
 	}
 
-	light.color *= dimmer;
+	//light.color *= dimmer;
 
 	float distantLightFadeStart = lightsFar * lightsFar * (lightFadeStart / lightFadeEnd);
 	float distantLightFadeEnd = lightsFar * lightsFar;
@@ -522,7 +607,7 @@ bool LightLimitFix::AddCachedParticleLights(eastl::vector<LightData>& lightsData
 		dimmer = 0.0f;
 	}
 
-	light.color *= dimmer;
+	//light.color *= dimmer;
 
 	if ((light.color.x + light.color.y + light.color.z) > 1e-4 && light.radius > 1e-4) {
 		if (a_geometry && a_config && a_config->flicker) {
@@ -549,9 +634,9 @@ bool LightLimitFix::AddCachedParticleLights(eastl::vector<LightData>& lightsData
 
 		auto state = RE::BSGraphics::RendererShadowState::GetSingleton();
 		auto eyePosition = eyeCount == 1 ?
-		                       state->GetRuntimeData().posAdjust.getEye(a_eyeIndex) :
-		                       state->GetVRRuntimeData().posAdjust.getEye(a_eyeIndex);
-		cachedParticleLight.position = { light.positionWS[a_eyeIndex].x + eyePosition.x, light.positionWS[a_eyeIndex].y + eyePosition.y, light.positionWS[a_eyeIndex].z + eyePosition.z };
+		                       state->GetRuntimeData().posAdjust.getEye(0) :
+		                       state->GetVRRuntimeData().posAdjust.getEye(0);
+		cachedParticleLight.position = { light.positionWS[0].x + eyePosition.x, light.positionWS[0].y + eyePosition.y, light.positionWS[0].z + eyePosition.z };
 		for (int eyeIndex = 0; eyeIndex < eyeCount; eyeIndex++) {
 			auto viewMatrix = eyeCount == 1 ?
 			                      state->GetRuntimeData().cameraData.getEye(eyeIndex).viewMat :
@@ -667,10 +752,9 @@ void LightLimitFix::UpdateLights()
 		LightData clusteredLight{};
 		uint32_t clusteredLights = 0;
 
-		auto eyeIndex = 0;  // only calculate for left eye
 		auto eyePosition = eyeCount == 1 ?
-		                       state->GetRuntimeData().posAdjust.getEye(eyeIndex) :
-		                       state->GetVRRuntimeData().posAdjust.getEye(eyeIndex);
+		                       state->GetRuntimeData().posAdjust.getEye(0) :
+		                       state->GetVRRuntimeData().posAdjust.getEye(0);
 
 		for (const auto& particleLight : particleLights) {
 			if (const auto particleSystem = netimmerse_cast<RE::NiParticleSystem*>(particleLight.first);
@@ -680,11 +764,16 @@ void LightLimitFix::UpdateLights()
 
 				auto numVertices = particleData->GetActiveVertexCount();
 				for (std::uint32_t p = 0; p < numVertices; p++) {
-					float radius = particleData->GetParticlesRuntimeData().sizes[p] * 64.0f;
+					float radius = particleData->GetParticlesRuntimeData().sizes[p] * 64;
 
 					auto initialPosition = particleData->GetParticlesRuntimeData().positions[p];
-					if (!particleSystem->GetParticleSystemRuntimeData().isWorldspace)
-						initialPosition += particleLight.first->world.translate;
+					if (!particleSystem->GetParticleSystemRuntimeData().isWorldspace) {
+						// Detect first-person meshes
+						if ((particleLight.first->GetModelData().modelBound.radius * particleLight.first->world.scale) != particleLight.first->worldBound.radius)
+							initialPosition += particleLight.first->worldBound.center;
+						else
+							initialPosition += particleLight.first->world.translate;
+					}
 
 					RE::NiPoint3 positionWS = initialPosition - eyePosition;
 
@@ -692,12 +781,12 @@ void LightLimitFix::UpdateLights()
 						auto averageRadius = clusteredLight.radius / (float)clusteredLights;
 						float radiusDiff = abs(averageRadius - radius);
 
-						auto averagePosition = clusteredLight.positionWS[eyeIndex] / (float)clusteredLights;
+						auto averagePosition = clusteredLight.positionWS[0] / (float)clusteredLights;
 						float positionDiff = positionWS.GetDistance({ averagePosition.x, averagePosition.y, averagePosition.z });
 
 						if ((radiusDiff + positionDiff) > settings.ParticleLightsOptimisationClusterRadius || !settings.EnableParticleLightsOptimization) {
 							clusteredLight.radius /= (float)clusteredLights;
-							clusteredLight.positionWS[eyeIndex] /= (float)clusteredLights;
+							clusteredLight.positionWS[0] /= (float)clusteredLights;
 							clusteredLight.positionWS[1] = clusteredLight.positionWS[0];
 							if (eyeCount == 2) {
 								auto offset = eyePosition - state->GetVRRuntimeData().posAdjust.getEye(1);
@@ -706,47 +795,49 @@ void LightLimitFix::UpdateLights()
 								clusteredLight.positionWS[1].z += offset.z / (float)clusteredLights;
 							}
 
-							currentLightCount += AddCachedParticleLights(lightsData, clusteredLight, eyeIndex);
+							currentLightCount += AddCachedParticleLights(lightsData, clusteredLight);
 
 							clusteredLights = 0;
 							clusteredLight.color = { 0, 0, 0 };
 							clusteredLight.radius = 0;
-							clusteredLight.positionWS[eyeIndex] = { 0, 0, 0 };
+							clusteredLight.positionWS[0] = { 0, 0, 0 };
 						}
 					}
 
-					float alpha = particleLight.second.first.alpha * particleData->GetParticlesRuntimeData().color[p].alpha;
-
+					float alpha = particleLight.second.color.alpha * particleData->GetParticlesRuntimeData().color[p].alpha;
 					float3 color;
-					color.x = particleLight.second.first.red * particleData->GetParticlesRuntimeData().color[p].red;
-					color.y = particleLight.second.first.green * particleData->GetParticlesRuntimeData().color[p].green;
-					color.z = particleLight.second.first.blue * particleData->GetParticlesRuntimeData().color[p].blue;
+					color.x = particleLight.second.color.red * particleData->GetParticlesRuntimeData().color[p].red;
+					color.y = particleLight.second.color.green * particleData->GetParticlesRuntimeData().color[p].green;
+					color.z = particleLight.second.color.blue * particleData->GetParticlesRuntimeData().color[p].blue;
+					clusteredLight.color += Saturation(color, settings.ParticleLightsSaturation) * alpha;
 
-					clusteredLight.color += Saturation(color, settings.ParticleLightsSaturation * particleLight.second.second.saturationMult) * alpha * std::numbers::pi_v<float>;
-
-					clusteredLight.radius += radius * particleLight.second.second.radiusMult;
-
-					clusteredLight.positionWS[eyeIndex].x += positionWS.x;
-					clusteredLight.positionWS[eyeIndex].y += positionWS.y;
-					clusteredLight.positionWS[eyeIndex].z += positionWS.z;
+					clusteredLight.radius += radius * particleLight.second.config.radiusMult;
+					clusteredLight.positionWS[0].x += positionWS.x;
+					clusteredLight.positionWS[0].y += positionWS.y;
+					clusteredLight.positionWS[0].z += positionWS.z;
 
 					clusteredLights++;
 				}
+
 			} else {
 				// process billboard
 				LightData light{};
 
-				light.color.x = particleLight.second.first.red;
-				light.color.y = particleLight.second.first.green;
-				light.color.z = particleLight.second.first.blue;
+				light.color.x = particleLight.second.color.red;
+				light.color.y = particleLight.second.color.green;
+				light.color.z = particleLight.second.color.blue;
 
-				light.color = Saturation(light.color, settings.ParticleLightsSaturation * particleLight.second.second.saturationMult) * particleLight.second.first.alpha;
+				light.color = Saturation(light.color, settings.ParticleLightsSaturation);
 
-				light.radius = particleLight.first->GetModelData().modelBound.radius * particleLight.first->world.scale;
+				light.color *= particleLight.second.color.alpha;
+
+				float radius = particleLight.first->GetModelData().modelBound.radius * particleLight.first->world.scale;
+
+				light.radius = radius * settings.ParticleLightsRadiusBillboards;
 
 				SetLightPosition(light, particleLight.first->worldBound.center);  //light is complete for both eyes by now
 
-				currentLightCount += AddCachedParticleLights(lightsData, light, eyeIndex, &particleLight.second.second, particleLight.first, timer);
+				currentLightCount += AddCachedParticleLights(lightsData, light, &particleLight.second.config, particleLight.first, timer);
 			}
 		}
 
@@ -760,7 +851,7 @@ void LightLimitFix::UpdateLights()
 				clusteredLight.positionWS[1].y += offset.y / (float)clusteredLights;
 				clusteredLight.positionWS[1].z += offset.z / (float)clusteredLights;
 			}
-			currentLightCount += AddCachedParticleLights(lightsData, clusteredLight, eyeIndex);
+			currentLightCount += AddCachedParticleLights(lightsData, clusteredLight);
 		}
 	}
 
