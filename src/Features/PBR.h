@@ -11,45 +11,50 @@ struct PBR : Feature
 		return &singleton;
 	}
 
+	static void InstallHooks()
+	{
+		Hooks::Install();
+	}
+
 	virtual inline std::string GetName() { return "PBR"; }
 	virtual inline std::string GetShortName() { return "PBR"; }
 
 	struct Settings
 	{	
-		std::uint32_t outdoor =  1;
-		float MinRoughness = 0.2f;
-		float MiddleRoughness = 0.6f;
-		float MaxRoughness = 1.0f;
-		float GlossinessScale = 1.0f;
-		float NonMetalThreshold = 0.1f;
-		float MetalThreshold = 0.2f;
-		float GrassBentNormal = 0.2f;
+		std::uint32_t Outdoor =  1;
+		std::uint32_t Cloth =  0;
+		float MinRoughness = 0.1f;
+		float MiddleRoughness = 0.5f;
+		float ClothDiffuse =  0.0f;
+		float ClothScatter = 1.0f;
+		float GrassBentNormal = 0.5f;
 		float GrassRoughness = 0.9f;
-		float GrassSpecular = 0.5f;
+		float GrassSpecular = 1.0f;
 		float GrassDiffuse = 0.3f;
+		float GrassSheen = 1.0f;
+		float LandscapeSheen = 0.0f;
 		float WindIntensity = 0.15f;
-		float WindSpeed = 0.15f;
-		float Exposure = 1.0f;
-		float PointLightAttenuation = 1.0f;
-		float PointLightIntensity = 1.0f;
 		float AmbientDiffuse = 1.0f;
 		float AmbientSpecular = 1.0f;
-		float SpecularToF0 = 0.5f;
-		float CubemapToF0 = 1.0f;
-		float DiffuseRimLighting = 1.0f;
-		float SpecularRimLighting = 1.0f;
-		float SoftLighting = 0.0f;
-		float WaterRoughness = 0.3;
+		float SSSAmount = 1.0f;
+		float SSSBlur = 1.0f;
+		float WaterRoughness = 0.3f;
+		float WaterAttenuation = 0.2f;
+		float WaterReflection = 1.0f;
 	};
 
 	struct alignas(16) PerFrame
 	{	
 		DirectX::XMFLOAT4 EyePosition;
-		DirectX::XMFLOAT4 DirLightDirection;
 		Settings Settings;
 	};
 
 	Settings settings;
+
+	bool ModelSpaceNormals = false;
+	bool UpdateTextureName = false;
+	bool EnableClothShader = false;
+	char TextureName[256] = "1234567890";
 
 	bool updatePerFrame = false;
 	ConstantBuffer* perFrame = nullptr;
@@ -62,4 +67,27 @@ struct PBR : Feature
 
 	virtual void Load(json& o_json);
 	virtual void Save(json& o_json);
+
+	void BSLightingShader_SetupGeometry_Before(RE::BSRenderPass* Pass);
+
+	struct Hooks
+	{
+		struct BSLightingShader_SetupGeometry
+		{
+			static void thunk(RE::BSShader* This, RE::BSRenderPass* Pass, uint32_t RenderFlags)
+			{
+				GetSingleton()->BSLightingShader_SetupGeometry_Before(Pass);
+				func(This, Pass, RenderFlags);
+			}
+			static inline REL::Relocation<decltype(thunk)> func;
+		};
+
+		static void Install()
+		{
+			stl::write_vfunc<0x6, BSLightingShader_SetupGeometry>(RE::VTABLE_BSLightingShader[0]);
+
+			logger::info("[PBR] Installed hooks");
+		}
+	};
+
 };
