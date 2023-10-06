@@ -8,12 +8,10 @@
 #include "State.h"
 
 #include "Feature.h"
-#include "Features/ExtendedMaterials.h"
 #include "Features/LightLimitFix/ParticleLights.h"
-#include "Features/ScreenSpaceShadows.h"
-#include "Features/WaterBlending.h"
 
 #define SETTING_MENU_TOGGLEKEY "Toggle Key"
+#define SETTING_MENU_SKIPKEY "Skip Compilation Key"
 #define SETTING_MENU_FONTSCALE "Font Scale"
 
 void SetupImGuiStyle()
@@ -77,6 +75,9 @@ void Menu::Load(json& o_json)
 	if (o_json[SETTING_MENU_TOGGLEKEY].is_number_unsigned()) {
 		toggleKey = o_json[SETTING_MENU_TOGGLEKEY];
 	}
+	if (o_json[SETTING_MENU_SKIPKEY].is_number_unsigned()) {
+		skipCompilationKey = o_json[SETTING_MENU_SKIPKEY];
+	}
 	if (o_json[SETTING_MENU_FONTSCALE].is_number_float()) {
 		fontScale = o_json[SETTING_MENU_FONTSCALE];
 	}
@@ -86,6 +87,7 @@ void Menu::Save(json& o_json)
 {
 	json menu;
 	menu[SETTING_MENU_TOGGLEKEY] = toggleKey;
+	menu[SETTING_MENU_SKIPKEY] = skipCompilationKey;
 	menu[SETTING_MENU_FONTSCALE] = fontScale;
 
 	o_json["Menu"] = menu;
@@ -211,11 +213,18 @@ RE::BSEventNotifyControl Menu::ProcessEvent(RE::InputEvent* const* a_event, RE::
 			switch (button->device.get()) {
 			case RE::INPUT_DEVICE::kKeyboard:
 				if (!button->IsPressed()) {
+					logger::trace("Detected key code {} ({})", KeyIdToString(key), key);
 					if (settingToggleKey) {
 						toggleKey = key;
 						settingToggleKey = false;
+					} else if (settingSkipCompilationKey) {
+						skipCompilationKey = key;
+						settingSkipCompilationKey = false;
 					} else if (key == toggleKey) {
 						IsEnabled = !IsEnabled;
+					} else if (key == skipCompilationKey) {
+						auto& shaderCache = SIE::ShaderCache::Instance();
+						shaderCache.backgroundCompilation = true;
 					}
 				}
 
@@ -305,7 +314,11 @@ void Menu::DrawSettings()
 			ImGui::TableNextColumn();
 			if (ImGui::Button("Clear Shader Cache", { -1, 0 })) {
 				shaderCache.Clear();
-				ScreenSpaceShadows::GetSingleton()->ClearComputeShader();
+				for (auto* feature : Feature::GetFeatureList()) {
+					if (feature->loaded) {
+						feature->ClearShaderCache();
+					}
+				}
 			}
 			if (ImGui::IsItemHovered()) {
 				ImGui::BeginTooltip();
@@ -412,8 +425,23 @@ void Menu::DrawSettings()
 
 				ImGui::AlignTextToFramePadding();
 				ImGui::SameLine();
-				if (ImGui::Button("Change")) {
+				if (ImGui::Button("Change##toggle")) {
 					settingToggleKey = true;
+				}
+			}
+			if (settingSkipCompilationKey) {
+				ImGui::Text("Press any key to set as Skip Compilation Key...");
+			} else {
+				ImGui::AlignTextToFramePadding();
+				ImGui::Text("Skip Compilation Key:");
+				ImGui::SameLine();
+				ImGui::AlignTextToFramePadding();
+				ImGui::TextColored(ImVec4(1, 1, 0, 1), "%s", KeyIdToString(skipCompilationKey));
+
+				ImGui::AlignTextToFramePadding();
+				ImGui::SameLine();
+				if (ImGui::Button("Change##skip")) {
+					settingSkipCompilationKey = true;
 				}
 			}
 
@@ -479,9 +507,44 @@ void Menu::DrawSettings()
 				ImGui::BeginTooltip();
 				ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
 				ImGui::Text(
-					"Number of threads to compile shaders with. "
-					"The more threads the faster compilation will finish but may make the system unresponsive. "
-					"This should only be changed between restarts. ");
+					"Number of threads to use to compile shaders. "
+					"The more threads the faster compilation will finish but may make the system unresponsive. ");
+				ImGui::PopTextWrapPos();
+				ImGui::EndTooltip();
+			}
+			ImGui::SliderInt("Background Compiler Threads", &shaderCache.backgroundCompilationThreadCount, 1, static_cast<int32_t>(std::thread::hardware_concurrency()));
+			if (ImGui::IsItemHovered()) {
+				ImGui::BeginTooltip();
+				ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+				ImGui::Text(
+					"Number of threads to use to compile shaders while playing game. "
+					"This is activated if the startup compilation is skipped. "
+					"The more threads the faster compilation will finish but may make the system unresponsive. ");
+				ImGui::PopTextWrapPos();
+				ImGui::EndTooltip();
+			}
+
+			if (ImGui::SliderInt("Test Interval", (int*)&testInterval, 0, 10)) {
+				if (testInterval == 0) {
+					inTestMode = false;
+					logger::info("Disabling test mode.");
+					State::GetSingleton()->Load(true);  // restore last settings before entering test mode
+				} else if (testInterval && !inTestMode) {
+					logger::info("Saving current settings for test mode and starting test with interval {}.", testInterval);
+					State::GetSingleton()->Save(true);
+					inTestMode = true;
+				} else {
+					logger::info("Setting new interval {}.", testInterval);
+				}
+			}
+			if (ImGui::IsItemHovered()) {
+				ImGui::BeginTooltip();
+				ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+				ImGui::Text(
+					"Sets number of seconds before toggling between default USER and TEST config. "
+					"0 disables. Non-zero will enable testing mode. "
+					"Enabling will save current settings as TEST config."
+					"This has no impact if no settings are changed.");
 				ImGui::PopTextWrapPos();
 				ImGui::EndTooltip();
 			}
@@ -575,7 +638,9 @@ void Menu::DrawOverlay()
 
 	auto failed = shaderCache.GetFailedTasks();
 	auto hide = shaderCache.IsHideErrors();
-	auto progressTitle = fmt::format("Compiling Shaders: {}", shaderCache.GetShaderStatsString(!state->IsDeveloperMode()).c_str());
+	auto progressTitle = fmt::format("{}Compiling Shaders: {}",
+		shaderCache.backgroundCompilation ? "Background " : "",
+		shaderCache.GetShaderStatsString(!state->IsDeveloperMode()).c_str());
 	auto percent = (float)compiledShaders / (float)totalShaders;
 	auto progressOverlay = fmt::format("{}/{} ({:2.1f}%)", compiledShaders, totalShaders, 100 * percent);
 	if (shaderCache.IsCompiling()) {
@@ -587,6 +652,13 @@ void Menu::DrawOverlay()
 		}
 		ImGui::TextUnformatted(progressTitle.c_str());
 		ImGui::ProgressBar(percent, ImVec2(0.0f, 0.0f), progressOverlay.c_str());
+		if (!shaderCache.backgroundCompilation && shaderCache.menuLoaded) {
+			auto skipShadersText = fmt::format(
+				"Press {} to proceed without completing shader compilation. "
+				"WARNING: Uncompiled shaders will have visual errors or cause stuttering when loading.",
+				KeyIdToString(skipCompilationKey));
+			ImGui::TextUnformatted(skipShadersText.c_str());
+		}
 
 		ImGui::End();
 	} else if (failed && !hide) {
@@ -607,6 +679,25 @@ void Menu::DrawOverlay()
 		DrawSettings();
 	} else {
 		ImGui::GetIO().MouseDrawCursor = false;
+	}
+
+	if (inTestMode) {  // In test mode
+		float seconds = (float)duration_cast<std::chrono::milliseconds>(high_resolution_clock::now() - lastTestSwitch).count() / 1000;
+		auto remaining = (float)testInterval - seconds;
+		if (remaining < 0) {
+			usingTestConfig = !usingTestConfig;
+			logger::info("Swapping mode to {}", usingTestConfig ? "test" : "user");
+			State::GetSingleton()->Load(usingTestConfig);
+			lastTestSwitch = high_resolution_clock::now();
+		}
+		ImGui::SetNextWindowBgAlpha(1);
+		ImGui::SetNextWindowPos(ImVec2(10, 10));
+		if (!ImGui::Begin("Testing", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings)) {
+			ImGui::End();
+			return;
+		}
+		ImGui::Text(fmt::format("{} Mode : {:.1f} seconds left", usingTestConfig ? "Test" : "User", remaining).c_str());
+		ImGui::End();
 	}
 
 	ImGui::Render();

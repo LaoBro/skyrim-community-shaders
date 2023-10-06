@@ -24,6 +24,9 @@ public:
 	}
 	virtual inline std::string GetName() { return "Light Limit Fix"; }
 	virtual inline std::string GetShortName() { return "LightLimitFix"; }
+	inline std::string_view GetShaderDefineName() override { return "LIGHT_LIMIT_FIX"; }
+
+	bool HasShaderDefine(RE::BSShader::Type shaderType) override;
 
 	struct LightData
 	{
@@ -115,7 +118,8 @@ public:
 	virtual void DrawSettings();
 	virtual void Draw(const RE::BSShader* shader, const uint32_t descriptor);
 
-	void DataLoaded();
+	virtual void PostPostLoad() override;
+	virtual void DataLoaded() override;
 
 	float CalculateLightDistance(float3 a_lightPosition, float a_radius);
 	bool AddCachedParticleLights(eastl::vector<LightData>& lightsData, LightLimitFix::LightData& light, ParticleLights::Config* a_config = nullptr, RE::BSGeometry* a_geometry = nullptr, double timer = 0.0f);
