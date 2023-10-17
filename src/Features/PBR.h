@@ -19,10 +19,10 @@ struct PBR : Feature
 	virtual inline std::string GetName() { return "PBR"; }
 	virtual inline std::string GetShortName() { return "PBR"; }
 
-	struct Settings
+	struct alignas(16) Settings
 	{	
-		std::uint32_t Outdoor =  1;
-		std::uint32_t Cloth =  0;
+		std::uint32_t Outdoor = 1;
+		std::uint32_t EnableClothShader = 0;
 		float MinRoughness = 0.1f;
 		float MiddleRoughness = 0.5f;
 		float ClothDiffuse =  0.0f;
@@ -51,13 +51,23 @@ struct PBR : Feature
 
 	Settings settings;
 
-	bool ModelSpaceNormals = false;
-	bool UpdateTextureName = false;
-	bool EnableClothShader = false;
-	char TextureName[256] = "1234567890";
-
 	bool updatePerFrame = false;
+	bool ModelSpaceNormals = false;
+	PerFrame perFrameData{};
 	ConstantBuffer* perFrame = nullptr;
+	ID3D11Buffer* perFramebuffers[1];
+
+	struct alignas(16) PerPass
+	{	
+		std::uint32_t IsCloth =  0;
+		float Padding1 = 0.0f;
+		float Padding2 = 0.0f;
+		float Padding3 = 0.0f;
+	};
+	PerPass perPassData{};
+	ConstantBuffer* perPass = nullptr;
+	ID3D11Buffer* perPassbuffers[1];
+
 	virtual void SetupResources();
 	virtual void Reset();
 
@@ -69,6 +79,7 @@ struct PBR : Feature
 	virtual void Save(json& o_json);
 
 	void BSLightingShader_SetupGeometry_Before(RE::BSRenderPass* Pass);
+	void BSLightingShader_SetupGeometry_After(RE::BSRenderPass* Pass);
 
 	struct Hooks
 	{
@@ -78,6 +89,7 @@ struct PBR : Feature
 			{
 				GetSingleton()->BSLightingShader_SetupGeometry_Before(Pass);
 				func(This, Pass, RenderFlags);
+				//GetSingleton()->BSLightingShader_SetupGeometry_After(Pass);
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
 		};

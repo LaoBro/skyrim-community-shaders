@@ -7,6 +7,7 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	PBR::Settings,
 	MinRoughness,
 	MiddleRoughness,
+	EnableClothShader,
 	ClothDiffuse,
 	ClothScatter,
 	GrassBentNormal,
@@ -31,7 +32,7 @@ void PBR::DrawSettings()
 
 		ImGui::SliderFloat("Min Roughness", &settings.MinRoughness, 0.0f, 1.0f);
 		ImGui::SliderFloat("Middle Roughness", &settings.MiddleRoughness, 0.0f, 1.0f);
-		ImGui::Checkbox("Enable Cloth Shader", &EnableClothShader);
+		ImGui::Checkbox("Enable Cloth Shader", (bool*)&settings.EnableClothShader);
 		ImGui::SliderFloat("Cloth Diffuse", &settings.ClothDiffuse, 0.0f, 1.0f);
 		ImGui::SliderFloat("Cloth Scatter", &settings.ClothScatter, 0.0f, 1.0f);
 		ImGui::SliderFloat("Grass BentNormal", &settings.GrassBentNormal, 0.0f, 1.0f);
@@ -58,15 +59,11 @@ void PBR::DrawSettings()
 }
 
 void PBR::ModifyLighting(const RE::BSShader*, const uint32_t)
-{
-	PerFrame perFrameData{};
-	ZeroMemory(&perFrameData, sizeof(perFrameData));
+{	
+	auto context = RE::BSGraphics::Renderer::GetSingleton()->GetRuntimeData().context;
 
 	if (updatePerFrame) {
-		//PerFrame perFrameData{};
-		//ZeroMemory(&perFrameData, sizeof(perFrameData));
-
-		//perFrameData.Settings = settings;
+		perFrameData.Settings = settings;
 
 		auto accumulator = RE::BSGraphics::BSShaderAccumulator::GetCurrentAccumulator();
 		auto& position = accumulator->GetRuntimeData().eyePosition;
@@ -77,40 +74,37 @@ void PBR::ModifyLighting(const RE::BSShader*, const uint32_t)
 			// find center of eye position
 			eyePosition = state->GetVRRuntimeData().posAdjust.getEye() + state->GetVRRuntimeData().posAdjust.getEye(1);
 			eyePosition /= 2;
-		} else
+		} 
+		else {
 			eyePosition = state->GetRuntimeData().posAdjust.getEye();
+		}
 		perFrameData.EyePosition.x = position.x - eyePosition.x;
 		perFrameData.EyePosition.y = position.y - eyePosition.y;
 		perFrameData.EyePosition.z = position.z - eyePosition.z;
 
-    	if (auto sky = RE::Sky::GetSingleton())
+    	if (auto sky = RE::Sky::GetSingleton()) {
         	perFrameData.Settings.Outdoor = sky->mode.get() == RE::Sky::Mode::kFull;
+		}
 
-		//perFrame->Update(perFrameData);
+		perFrame->Update(perFrameData);
+
+		context->VSSetConstantBuffers(6, 1, perFramebuffers);
+		context->PSSetConstantBuffers(6, 1, perFramebuffers);
+		context->PSSetConstantBuffers(7, 1, perPassbuffers);
+
 		updatePerFrame = false;
 	}
-
-	settings.Cloth = strstr(TextureName, "textures\\clothes\\") != NULL && EnableClothShader;
-	perFrameData.Settings = settings;
-	perFrame->Update(perFrameData);
-	
-	auto context = RE::BSGraphics::Renderer::GetSingleton()->GetRuntimeData().context;
-
-	ID3D11Buffer* buffers[1];
-	buffers[0] = perFrame->CB();
-	context->VSSetConstantBuffers(6, 1, buffers);
-	context->PSSetConstantBuffers(6, 1, buffers);
-
-	
-	/*if (ModelSpaceNormals) {
+	/*
+	if (ModelSpaceNormals) {
 		ID3D11ShaderResourceView* NormalView[1];
 		context->PSGetShaderResources(1, 1, NormalView);
-		context->VSSetShaderResources(30, 1, NormalView);
+		context->VSSetShaderResources(1, 1, NormalView);
 
 		ID3D11SamplerState* NormalSampler[1];
 		context->PSGetSamplers(0, 1, NormalSampler);
 		context->VSSetSamplers(0, 1, NormalSampler);
-	}*/
+	}
+	*/
 	
 }
 
@@ -139,6 +133,9 @@ void PBR::Save(json& o_json)
 void PBR::SetupResources()
 {
 	perFrame = new ConstantBuffer(ConstantBufferDesc<PerFrame>());
+	perFramebuffers[0] = perFrame->CB();
+	perPass = new ConstantBuffer(ConstantBufferDesc<PerPass>());
+	perPassbuffers[0] = perPass->CB();
 }
 
 void PBR::Reset()
@@ -149,14 +146,31 @@ void PBR::Reset()
 void PBR::BSLightingShader_SetupGeometry_Before(RE::BSRenderPass* Pass)
 {
 	if (auto shaderProperty = Pass->shaderProperty) {
-		//ModelSpaceNormals = shaderProperty -> flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kModelSpaceNormals);
+		ModelSpaceNormals = shaderProperty -> flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kModelSpaceNormals);
 		if (shaderProperty->GetMaterialType() == RE::BSShaderMaterial::Type::kLighting) {
 			if (auto lightingMaterial = (RE::BSLightingShaderMaterialBase*)(shaderProperty->material)) {
 				if (auto textureSet = lightingMaterial->GetTextureSet())
 				{
-					strcpy_s(TextureName, textureSet->GetTexturePath(RE::BSTextureSet::Texture::kDiffuse));
+					std::string TexturePath = textureSet->GetTexturePath(RE::BSTextureSet::Texture::kDiffuse);
+					perPassData.IsCloth = TexturePath.contains("clothes");
+					perPass->Update(perPassData);
 				}
 			}
 		}
 	}
 }
+/*
+void PBR::BSLightingShader_SetupGeometry_After(RE::BSRenderPass*)
+{	
+	if (ModelSpaceNormals) {
+		auto context = RE::BSGraphics::Renderer::GetSingleton()->GetRuntimeData().context;
+		ID3D11ShaderResourceView* NormalView[1];
+		context->PSGetShaderResources(1, 1, NormalView);
+		context->VSSetShaderResources(1, 1, NormalView);
+
+		ID3D11SamplerState* NormalSampler[1];
+		context->PSGetSamplers(0, 1, NormalSampler);
+		context->VSSetSamplers(0, 1, NormalSampler);
+	}
+}
+*/
