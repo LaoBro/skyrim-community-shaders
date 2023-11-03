@@ -22,22 +22,22 @@ struct PBR : Feature
 	struct alignas(16) Settings
 	{	
 		std::uint32_t Outdoor = 1;
+		std::uint32_t IndoorSunSpecular = 1;
 		std::uint32_t EnableClothShader = 0;
-		float MinRoughness = 0.1f;
-		float MiddleRoughness = 0.5f;
-		float ClothDiffuse =  0.0f;
-		float ClothScatter = 1.0f;
+		float ClothDiffuse =  0.5f;
+		float ClothScatterDensity = 0.5f;
+		float ClothScatterBrightness = 0.25f;
+		float FoliageRoughness = 0.5f;
 		float GrassBentNormal = 0.5f;
-		float GrassRoughness = 0.9f;
+		float GrassRoughness = 0.66f;
 		float GrassSpecular = 1.0f;
 		float GrassDiffuse = 0.3f;
 		float GrassSheen = 1.0f;
 		float LandscapeSheen = 0.0f;
-		float WindIntensity = 0.15f;
+		float WindIntensity = 1.0f;
 		float AmbientDiffuse = 1.0f;
 		float AmbientSpecular = 1.0f;
 		float SSSAmount = 1.0f;
-		float SSSBlur = 1.0f;
 		float WaterRoughness = 0.3f;
 		float WaterAttenuation = 0.2f;
 		float WaterReflection = 1.0f;
@@ -59,8 +59,8 @@ struct PBR : Feature
 
 	struct alignas(16) PerPass
 	{	
-		std::uint32_t IsCloth =  0;
-		float Padding1 = 0.0f;
+		std::uint32_t PBRTexture = 0;
+		std::uint32_t IsCloth = 0;
 		float Padding2 = 0.0f;
 		float Padding3 = 0.0f;
 	};

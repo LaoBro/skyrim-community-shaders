@@ -5,11 +5,12 @@
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	PBR::Settings,
-	MinRoughness,
-	MiddleRoughness,
+	IndoorSunSpecular,
 	EnableClothShader,
 	ClothDiffuse,
-	ClothScatter,
+	ClothScatterDensity,
+	ClothScatterBrightness,
+	FoliageRoughness,
 	GrassBentNormal,
 	GrassRoughness,
 	GrassSpecular,
@@ -20,7 +21,6 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	AmbientDiffuse,
 	AmbientSpecular,
 	SSSAmount,
-	SSSBlur,
 	WaterRoughness,
 	WaterAttenuation,
 	WaterReflection
@@ -30,11 +30,12 @@ void PBR::DrawSettings()
 {
 	if (ImGui::TreeNodeEx("PBR Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
 
-		ImGui::SliderFloat("Min Roughness", &settings.MinRoughness, 0.0f, 1.0f);
-		ImGui::SliderFloat("Middle Roughness", &settings.MiddleRoughness, 0.0f, 1.0f);
+		ImGui::Checkbox("Indoor Sun Specular", (bool*)&settings.IndoorSunSpecular);
 		ImGui::Checkbox("Enable Cloth Shader", (bool*)&settings.EnableClothShader);
 		ImGui::SliderFloat("Cloth Diffuse", &settings.ClothDiffuse, 0.0f, 1.0f);
-		ImGui::SliderFloat("Cloth Scatter", &settings.ClothScatter, 0.0f, 1.0f);
+		ImGui::SliderFloat("Cloth Scatter Density", &settings.ClothScatterDensity, 0.0f, 1.0f);
+		ImGui::SliderFloat("Cloth Scatter Brightness", &settings.ClothScatterBrightness, 0.0f, 1.0f);
+		ImGui::SliderFloat("Grass Roughness", &settings.FoliageRoughness, 0.0f, 1.0f);
 		ImGui::SliderFloat("Grass BentNormal", &settings.GrassBentNormal, 0.0f, 1.0f);
 		ImGui::SliderFloat("Grass Roughness", &settings.GrassRoughness, 0.0f, 1.0f);
 		ImGui::SliderFloat("Grass Specular", &settings.GrassSpecular, 0.0f, 2.0f);
@@ -45,7 +46,6 @@ void PBR::DrawSettings()
 		ImGui::SliderFloat("Ambient Diffuse", &settings.AmbientDiffuse, 0.0f, 2.0f);
 		ImGui::SliderFloat("Ambient Specular", &settings.AmbientSpecular, 0.0f, 2.0f);
 		ImGui::SliderFloat("SSS Amount", &settings.SSSAmount, 0.0f, 1.0f);
-		ImGui::SliderFloat("SSS Blur", &settings.SSSBlur, 0.0f, 1.0f);
 		ImGui::SliderFloat("Water Roughness", &settings.WaterRoughness, 0.0f, 1.0f);
 		ImGui::SliderFloat("Water Attenuation", &settings.WaterAttenuation, 0.0f, 1.0f);
 		ImGui::SliderFloat("Water Reflection", &settings.WaterReflection, 0.0f, 1.0f);
@@ -145,19 +145,36 @@ void PBR::Reset()
 
 void PBR::BSLightingShader_SetupGeometry_Before(RE::BSRenderPass* Pass)
 {
-	if (auto shaderProperty = Pass->shaderProperty) {
-		ModelSpaceNormals = shaderProperty -> flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kModelSpaceNormals);
-		if (shaderProperty->GetMaterialType() == RE::BSShaderMaterial::Type::kLighting) {
-			if (auto lightingMaterial = (RE::BSLightingShaderMaterialBase*)(shaderProperty->material)) {
-				if (auto textureSet = lightingMaterial->GetTextureSet())
+	perPassData.PBRTexture = false;
+
+	if (auto Geometry = Pass->geometry) {
+		if (auto ExtraData = Geometry->GetExtraData("PBR")) {
+			perPassData.PBRTexture = true;
+		}
+	}
+
+	if (auto ShaderProperty = Pass->shaderProperty) {
+		//ModelSpaceNormals = shaderProperty -> flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kModelSpaceNormals);
+		if (ShaderProperty->GetMaterialType() == RE::BSShaderMaterial::Type::kLighting) {
+
+			if (auto ExtraData = ShaderProperty->GetExtraData("PBR")) {
+				perPassData.PBRTexture = true;
+			}
+			
+
+			if (auto lightingMaterial = (RE::BSLightingShaderMaterialBase*)(ShaderProperty->material)) {
+				if (auto TextureSet = lightingMaterial->GetTextureSet())
 				{
-					std::string TexturePath = textureSet->GetTexturePath(RE::BSTextureSet::Texture::kDiffuse);
-					perPassData.IsCloth = TexturePath.contains("clothes");
-					perPass->Update(perPassData);
+					if (auto TexturePathChar = TextureSet->GetTexturePath(RE::BSTextureSet::Texture::kDiffuse)) {
+						std::string TexturePathString = TexturePathChar;
+						perPassData.IsCloth = TexturePathString.contains("clothes") && settings.EnableClothShader;
+					}
 				}
 			}
 		}
 	}
+
+	perPass->Update(perPassData);
 }
 /*
 void PBR::BSLightingShader_SetupGeometry_After(RE::BSRenderPass*)
