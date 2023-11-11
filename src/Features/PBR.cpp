@@ -10,13 +10,13 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	ClothDiffuse,
 	ClothScatterDensity,
 	ClothScatterBrightness,
+	ClothRoughness,
 	FoliageRoughness,
 	GrassBentNormal,
 	GrassRoughness,
 	GrassSpecular,
-	GrassDiffuse,
+	GrassOcclusion,
 	GrassSheen,
-	LandscapeSheen,
 	WindIntensity,
 	AmbientDiffuse,
 	AmbientSpecular,
@@ -35,13 +35,13 @@ void PBR::DrawSettings()
 		ImGui::SliderFloat("Cloth Diffuse", &settings.ClothDiffuse, 0.0f, 1.0f);
 		ImGui::SliderFloat("Cloth Scatter Density", &settings.ClothScatterDensity, 0.0f, 1.0f);
 		ImGui::SliderFloat("Cloth Scatter Brightness", &settings.ClothScatterBrightness, 0.0f, 1.0f);
-		ImGui::SliderFloat("Grass Roughness", &settings.FoliageRoughness, 0.0f, 1.0f);
+		ImGui::SliderFloat("Cloth ClothRoughness", &settings.ClothRoughness, 0.0f, 1.0f);
+		ImGui::SliderFloat("Foliage Roughness", &settings.FoliageRoughness, 0.0f, 1.0f);
 		ImGui::SliderFloat("Grass BentNormal", &settings.GrassBentNormal, 0.0f, 1.0f);
-		ImGui::SliderFloat("Grass Roughness", &settings.GrassRoughness, 0.0f, 1.0f);
-		ImGui::SliderFloat("Grass Specular", &settings.GrassSpecular, 0.0f, 2.0f);
-		ImGui::SliderFloat("Grass Diffuse", &settings.GrassDiffuse, 0.0f, 1.0f);
+		ImGui::SliderFloat("Grass Roughness", &settings.GrassRoughness, 0.0f, 2.0f);
+		ImGui::SliderFloat("Grass Specular", &settings.GrassSpecular, 0.0f, 4.0f);
+		ImGui::SliderFloat("Grass Occlusion", &settings.GrassOcclusion, 0.0f, 1.0f);
 		ImGui::SliderFloat("Grass Sheen", &settings.GrassSheen, 0.0f, 1.0f);
-		ImGui::SliderFloat("Landscape Sheen", &settings.LandscapeSheen, 0.0f, 1.0f);
 		ImGui::SliderFloat("Wind Intensity", &settings.WindIntensity, 0.0f, 1.0f);
 		ImGui::SliderFloat("Ambient Diffuse", &settings.AmbientDiffuse, 0.0f, 2.0f);
 		ImGui::SliderFloat("Ambient Specular", &settings.AmbientSpecular, 0.0f, 2.0f);
