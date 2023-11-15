@@ -691,7 +691,10 @@ bool LightLimitFix::AddCachedParticleLights(eastl::vector<LightData>& lightsData
 				light.positionWS[eyeIndex].y += (float)perlin2.noise1D(scaledTimer) * a_config->flickerMovement;
 				light.positionWS[eyeIndex].z += (float)perlin3.noise1D(scaledTimer) * a_config->flickerMovement;
 			}
-			dimmer = std::max(0.0f, dimmer - ((float)perlin4.noise1D_01(scaledTimer) * a_config->flickerIntensity));  // todo: this is wrong
+
+			light.color.x = std::max(0.0f, light.color.x - ((float)perlin4.noise1D_01(scaledTimer) * a_config->flickerIntensity));
+			light.color.y = std::max(0.0f, light.color.y - ((float)perlin4.noise1D_01(scaledTimer) * a_config->flickerIntensity));
+			light.color.z = std::max(0.0f, light.color.z - ((float)perlin4.noise1D_01(scaledTimer) * a_config->flickerIntensity));
 		}
 
 		CachedParticleLight cachedParticleLight{};
@@ -720,8 +723,11 @@ bool LightLimitFix::AddCachedParticleLights(eastl::vector<LightData>& lightsData
 
 float3 LightLimitFix::Saturation(float3 color, float saturation)
 {
-	auto grey = color.Dot(float3(0.3f, 0.59f, 0.11f));
-	return float3::Lerp(float3(grey), color, saturation);
+	float grey = color.Dot(float3(0.3f, 0.59f, 0.11f));
+	color.x = std::max(std::lerp(grey, color.x, saturation), 0.0f);
+	color.y = std::max(std::lerp(grey, color.y, saturation), 0.0f);
+	color.z = std::max(std::lerp(grey, color.z, saturation), 0.0f);
+	return color;
 }
 
 void LightLimitFix::UpdateLights()
