@@ -10,47 +10,38 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	ClothDiffuse,
 	ClothScatterDensity,
 	ClothScatterBrightness,
-	ClothRoughness,
 	FoliageRoughness,
 	GrassBentNormal,
 	GrassRoughness,
-	GrassSpecular,
-	GrassOcclusion,
-	GrassSheen,
 	WindIntensity,
 	AmbientDiffuse,
 	AmbientSpecular,
 	SSSAmount,
 	WaterRoughness,
-	WaterAttenuation,
+	WaterScatter,
 	WaterReflection
 	)
 
 void PBR::DrawSettings()
 {
-	if (ImGui::TreeNodeEx("PBR Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+	if (
+		ImGui::TreeNodeEx("PBR Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
 
 		ImGui::Checkbox("Indoor Sun Specular", (bool*)&settings.IndoorSunSpecular);
 		ImGui::Checkbox("Enable Cloth Shader", (bool*)&settings.EnableClothShader);
 		ImGui::SliderFloat("Cloth Diffuse", &settings.ClothDiffuse, 0.0f, 1.0f);
 		ImGui::SliderFloat("Cloth Scatter Density", &settings.ClothScatterDensity, 0.0f, 1.0f);
 		ImGui::SliderFloat("Cloth Scatter Brightness", &settings.ClothScatterBrightness, 0.0f, 1.0f);
-		ImGui::SliderFloat("Cloth ClothRoughness", &settings.ClothRoughness, 0.0f, 1.0f);
 		ImGui::SliderFloat("Foliage Roughness", &settings.FoliageRoughness, 0.0f, 1.0f);
 		ImGui::SliderFloat("Grass BentNormal", &settings.GrassBentNormal, 0.0f, 1.0f);
 		ImGui::SliderFloat("Grass Roughness", &settings.GrassRoughness, 0.0f, 2.0f);
-		ImGui::SliderFloat("Grass Specular", &settings.GrassSpecular, 0.0f, 4.0f);
-		ImGui::SliderFloat("Grass Occlusion", &settings.GrassOcclusion, 0.0f, 1.0f);
-		ImGui::SliderFloat("Grass Sheen", &settings.GrassSheen, 0.0f, 1.0f);
 		ImGui::SliderFloat("Wind Intensity", &settings.WindIntensity, 0.0f, 1.0f);
 		ImGui::SliderFloat("Ambient Diffuse", &settings.AmbientDiffuse, 0.0f, 2.0f);
 		ImGui::SliderFloat("Ambient Specular", &settings.AmbientSpecular, 0.0f, 2.0f);
 		ImGui::SliderFloat("SSS Amount", &settings.SSSAmount, 0.0f, 1.0f);
 		ImGui::SliderFloat("Water Roughness", &settings.WaterRoughness, 0.0f, 1.0f);
-		ImGui::SliderFloat("Water Attenuation", &settings.WaterAttenuation, 0.0f, 1.0f);
+		ImGui::SliderFloat("Water Scatter", &settings.WaterScatter, 0.0f, 1.0f);
 		ImGui::SliderFloat("Water Reflection", &settings.WaterReflection, 0.0f, 1.0f);
-		//ImGui::Checkbox("Update Texture Name", &UpdateTextureName);
-		//ImGui::InputText("", TextureName, 256);
 
 		ImGui::TreePop();
 	}

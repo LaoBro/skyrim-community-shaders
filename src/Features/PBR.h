@@ -27,19 +27,15 @@ struct PBR : Feature
 		float ClothDiffuse =  0.5f;
 		float ClothScatterDensity = 0.5f;
 		float ClothScatterBrightness = 0.25f;
-		float ClothRoughness = 0.7f;
 		float FoliageRoughness = 0.5f;
-		float GrassBentNormal = 0.5f;
-		float GrassRoughness = 1.2f;
-		float GrassSpecular = 1.0f;
-		float GrassOcclusion = 0.0f;
-		float GrassSheen = 1.0f;
+		float GrassBentNormal = 0.8f;
+		float GrassRoughness = 1.0f;
 		float WindIntensity = 1.0f;
 		float AmbientDiffuse = 1.0f;
 		float AmbientSpecular = 0.7f;
 		float SSSAmount = 1.0f;
 		float WaterRoughness = 0.3f;
-		float WaterAttenuation = 0.2f;
+		float WaterScatter = 0.7f;
 		float WaterReflection = 1.0f;
 	};
 
