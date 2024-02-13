@@ -1,5 +1,6 @@
 #include "Feature.h"
 
+#include "Features/CloudShadows.h"
 #include "Features/DistantTreeLighting.h"
 #include "Features/DynamicCubemaps.h"
 #include "Features/ExtendedMaterials.h"
@@ -83,7 +84,8 @@ const std::vector<Feature*>& Feature::GetFeatureList()
 		PBR::GetSingleton(),
 		WetnessEffects::GetSingleton(),
 		LightLimitFix::GetSingleton(),
-		DynamicCubemaps::GetSingleton()
+		DynamicCubemaps::GetSingleton(),
+		CloudShadows::GetSingleton()
 	};
 
 	static std::vector<Feature*> featuresVR = {

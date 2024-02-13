@@ -64,6 +64,7 @@ void SetupImGuiStyle()
 }
 
 bool IsEnabled = false;
+ImVec4 TextColor = ImVec4{ 1.0f, 1.0f, 1.0f, 1.0f };
 
 Menu::~Menu()
 {
@@ -100,176 +101,6 @@ void Menu::Save(json& o_json)
 }
 
 #define IM_VK_KEYPAD_ENTER (VK_RETURN + 256)
-RE::BSEventNotifyControl Menu::ProcessEvent(RE::InputEvent* const* a_event, RE::BSTEventSource<RE::InputEvent*>* a_eventSource)
-{
-	if (!a_event || !a_eventSource)
-		return RE::BSEventNotifyControl::kContinue;
-
-	auto& io = ImGui::GetIO();
-
-	for (auto event = *a_event; event; event = event->next) {
-		if (event->eventType == RE::INPUT_EVENT_TYPE::kChar) {
-			io.AddInputCharacter(event->AsCharEvent()->keycode);
-		} else if (event->eventType == RE::INPUT_EVENT_TYPE::kButton) {
-			const auto button = static_cast<RE::ButtonEvent*>(event);
-			if (!button || (button->IsPressed() && !button->IsDown()))
-				continue;
-
-			auto scan_code = button->GetIDCode();
-			uint32_t key = MapVirtualKeyEx(scan_code, MAPVK_VSC_TO_VK_EX, GetKeyboardLayout(0));
-
-			switch (scan_code) {
-			case DIK_LEFTARROW:
-				key = VK_LEFT;
-				break;
-			case DIK_RIGHTARROW:
-				key = VK_RIGHT;
-				break;
-			case DIK_UPARROW:
-				key = VK_UP;
-				break;
-			case DIK_DOWNARROW:
-				key = VK_DOWN;
-				break;
-			case DIK_DELETE:
-				key = VK_DELETE;
-				break;
-			case DIK_END:
-				key = VK_END;
-				break;
-			case DIK_HOME:
-				key = VK_HOME;
-				break;  // pos1
-			case DIK_PRIOR:
-				key = VK_PRIOR;
-				break;  // page up
-			case DIK_NEXT:
-				key = VK_NEXT;
-				break;  // page down
-			case DIK_INSERT:
-				key = VK_INSERT;
-				break;
-			case DIK_NUMPAD0:
-				key = VK_NUMPAD0;
-				break;
-			case DIK_NUMPAD1:
-				key = VK_NUMPAD1;
-				break;
-			case DIK_NUMPAD2:
-				key = VK_NUMPAD2;
-				break;
-			case DIK_NUMPAD3:
-				key = VK_NUMPAD3;
-				break;
-			case DIK_NUMPAD4:
-				key = VK_NUMPAD4;
-				break;
-			case DIK_NUMPAD5:
-				key = VK_NUMPAD5;
-				break;
-			case DIK_NUMPAD6:
-				key = VK_NUMPAD6;
-				break;
-			case DIK_NUMPAD7:
-				key = VK_NUMPAD7;
-				break;
-			case DIK_NUMPAD8:
-				key = VK_NUMPAD8;
-				break;
-			case DIK_NUMPAD9:
-				key = VK_NUMPAD9;
-				break;
-			case DIK_DECIMAL:
-				key = VK_DECIMAL;
-				break;
-			case DIK_NUMPADENTER:
-				key = IM_VK_KEYPAD_ENTER;
-				break;
-			case DIK_LMENU:
-				key = VK_LMENU;
-				break;  // left alt
-			case DIK_LCONTROL:
-				key = VK_LCONTROL;
-				break;  // left control
-			case DIK_LSHIFT:
-				key = VK_LSHIFT;
-				break;  // left shift
-			case DIK_RMENU:
-				key = VK_RMENU;
-				break;  // right alt
-			case DIK_RCONTROL:
-				key = VK_RCONTROL;
-				break;  // right control
-			case DIK_RSHIFT:
-				key = VK_RSHIFT;
-				break;  // right shift
-			case DIK_LWIN:
-				key = VK_LWIN;
-				break;  // left win
-			case DIK_RWIN:
-				key = VK_RWIN;
-				break;  // right win
-			case DIK_APPS:
-				key = VK_APPS;
-				break;
-			default:
-				break;
-			}
-
-			switch (button->device.get()) {
-			case RE::INPUT_DEVICE::kKeyboard:
-				if (!button->IsPressed()) {
-					logger::trace("Detected key code {} ({})", KeyIdToString(key), key);
-					if (settingToggleKey) {
-						toggleKey = key;
-						settingToggleKey = false;
-					} else if (settingSkipCompilationKey) {
-						skipCompilationKey = key;
-						settingSkipCompilationKey = false;
-					} else if (settingsEffectsToggle) {
-						effectToggleKey = key;
-						settingsEffectsToggle = false;
-					} else if (key == toggleKey) {
-						IsEnabled = !IsEnabled;
-					} else if (key == skipCompilationKey) {
-						auto& shaderCache = SIE::ShaderCache::Instance();
-						shaderCache.backgroundCompilation = true;
-					} else if (key == effectToggleKey) {
-						auto& shaderCache = SIE::ShaderCache::Instance();
-						shaderCache.SetEnabled(!shaderCache.IsEnabled());
-					}
-				}
-
-				io.AddKeyEvent(VirtualKeyToImGuiKey(key), button->IsPressed());
-
-				if (key == VK_LCONTROL || key == VK_RCONTROL)
-					io.AddKeyEvent(ImGuiMod_Ctrl, button->IsPressed());
-				else if (key == VK_LSHIFT || key == VK_RSHIFT)
-					io.AddKeyEvent(ImGuiMod_Shift, button->IsPressed());
-				else if (key == VK_LMENU || key == VK_RMENU)
-					io.AddKeyEvent(ImGuiMod_Alt, button->IsPressed());
-				break;
-			case RE::INPUT_DEVICE::kMouse:
-				logger::trace("Detect mouse scan code {} value {} pressed: {}", scan_code, button->Value(), button->IsPressed());
-				if (scan_code > 7)  // middle scroll
-					io.AddMouseWheelEvent(0, button->Value() * (scan_code == 8 ? 1 : -1));
-				else {
-					if (scan_code > 5)
-						scan_code = 5;
-					io.AddMouseButtonEvent(scan_code, button->IsPressed());
-				}
-				break;
-			default:
-				continue;
-			}
-			if (const auto controlMap = RE::ControlMap::GetSingleton()) {
-				controlMap->GetRuntimeData().ignoreKeyboardMouse = IsEnabled;
-			}
-		}
-	}
-
-	return RE::BSEventNotifyControl::kContinue;
-}
 
 void Menu::Init(IDXGISwapChain* swapchain, ID3D11Device* device, ID3D11DeviceContext* context)
 {
@@ -309,6 +140,7 @@ void Menu::DrawSettings()
 	ImGui::SetNextWindowSize({ 1000, 1000 }, ImGuiCond_FirstUseEver);
 	ImGui::SetNextWindowPos({ 0, 0 }, ImGuiCond_FirstUseEver);
 	if (ImGui::Begin(std::format("Skyrim Community Shaders {}", Plugin::VERSION.string(".")).c_str(), &IsEnabled)) {
+		ImGui::PushStyleColor(ImGuiCol_Text, TextColor);
 		auto& shaderCache = SIE::ShaderCache::Instance();
 
 		if (ImGui::BeginTable("##LeButtons", 4, ImGuiTableFlags_SizingStretchSame)) {
@@ -332,31 +164,23 @@ void Menu::DrawSettings()
 					}
 				}
 			}
-			if (ImGui::IsItemHovered()) {
-				ImGui::BeginTooltip();
-				ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+			if (auto _tt = Util::HoverTooltipWrapper()) {
 				ImGui::Text(
 					"The Shader Cache is the collection of compiled shaders which replace the vanilla shaders at runtime. "
 					"Clearing the shader cache will mean that shaders are recompiled only when the game re-encounters them. "
 					"This is only needed for hot-loading shaders for development purposes. ");
-				ImGui::PopTextWrapPos();
-				ImGui::EndTooltip();
 			}
 
 			ImGui::TableNextColumn();
 			if (ImGui::Button("Clear Disk Cache", { -1, 0 })) {
 				shaderCache.DeleteDiskCache();
 			}
-			if (ImGui::IsItemHovered()) {
-				ImGui::BeginTooltip();
-				ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+			if (auto _tt = Util::HoverTooltipWrapper()) {
 				ImGui::Text(
 					"The Disk Cache is a collection of compiled shaders on disk, which are automatically created when shaders are added to the Shader Cache. "
 					"If you do not have a Disk Cache, or it is outdated or invalid, you will see \"Compiling Shaders\" in the upper-left corner. "
 					"After this has completed you will no longer see this message apart from when loading from the Disk Cache. "
 					"Only delete the Disk Cache manually if you are encountering issues. ");
-				ImGui::PopTextWrapPos();
-				ImGui::EndTooltip();
 			}
 
 			if (shaderCache.GetFailedTasks()) {
@@ -365,16 +189,12 @@ void Menu::DrawSettings()
 				if (ImGui::Button("Toggle Error Message", { -1, 0 })) {
 					shaderCache.ToggleErrorMessages();
 				}
-				if (ImGui::IsItemHovered()) {
-					ImGui::BeginTooltip();
-					ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+				if (auto _tt = Util::HoverTooltipWrapper()) {
 					ImGui::Text(
 						"Hide or show the shader failure message. "
 						"Your installation is broken and will likely see errors in game. "
 						"Please double check you have updated all features and that your load order is correct. "
 						"See CommunityShaders.log for details and check the NexusMods page or Discord server. ");
-					ImGui::PopTextWrapPos();
-					ImGui::EndTooltip();
 				}
 			}
 			ImGui::EndTable();
@@ -389,12 +209,8 @@ void Menu::DrawSettings()
 				if (ImGui::Checkbox("Enable Shaders", &useCustomShaders)) {
 					shaderCache.SetEnabled(useCustomShaders);
 				}
-				if (ImGui::IsItemHovered()) {
-					ImGui::BeginTooltip();
-					ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+				if (auto _tt = Util::HoverTooltipWrapper()) {
 					ImGui::Text("Disabling this effectively disables all features.");
-					ImGui::PopTextWrapPos();
-					ImGui::EndTooltip();
 				}
 
 				bool useDiskCache = shaderCache.IsDiskCache();
@@ -402,12 +218,8 @@ void Menu::DrawSettings()
 				if (ImGui::Checkbox("Enable Disk Cache", &useDiskCache)) {
 					shaderCache.SetDiskCache(useDiskCache);
 				}
-				if (ImGui::IsItemHovered()) {
-					ImGui::BeginTooltip();
-					ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+				if (auto _tt = Util::HoverTooltipWrapper()) {
 					ImGui::Text("Disabling this stops shaders from being loaded from disk, as well as stops shaders from being saved to it.");
-					ImGui::PopTextWrapPos();
-					ImGui::EndTooltip();
 				}
 
 				bool useAsync = shaderCache.IsAsync();
@@ -415,12 +227,8 @@ void Menu::DrawSettings()
 				if (ImGui::Checkbox("Enable Async", &useAsync)) {
 					shaderCache.SetAsync(useAsync);
 				}
-				if (ImGui::IsItemHovered()) {
-					ImGui::BeginTooltip();
-					ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+				if (auto _tt = Util::HoverTooltipWrapper()) {
 					ImGui::Text("Skips a shader being replaced if it hasn't been compiled yet. Also makes compilation blazingly fast!");
-					ImGui::PopTextWrapPos();
-					ImGui::EndTooltip();
 				}
 
 				ImGui::EndTable();
@@ -454,7 +262,7 @@ void Menu::DrawSettings()
 
 				ImGui::AlignTextToFramePadding();
 				ImGui::SameLine();
-				if (ImGui::Button("Change##toggle")) {
+				if (ImGui::Button("Change##EffectToggle")) {
 					settingsEffectsToggle = true;
 				}
 			}
@@ -489,12 +297,8 @@ void Menu::DrawSettings()
 			if (ImGui::Checkbox("Dump Shaders", &useDump)) {
 				shaderCache.SetDump(useDump);
 			}
-			if (ImGui::IsItemHovered()) {
-				ImGui::BeginTooltip();
-				ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+			if (auto _tt = Util::HoverTooltipWrapper()) {
 				ImGui::Text("Dump shaders at startup. This should be used only when reversing shaders. Normal users don't need this.");
-				ImGui::PopTextWrapPos();
-				ImGui::EndTooltip();
 			}
 			spdlog::level::level_enum logLevel = State::GetSingleton()->GetLogLevel();
 			const char* items[] = {
@@ -511,46 +315,30 @@ void Menu::DrawSettings()
 				ImGui::SameLine();
 				State::GetSingleton()->SetLogLevel(static_cast<spdlog::level::level_enum>(item_current));
 			}
-			if (ImGui::IsItemHovered()) {
-				ImGui::BeginTooltip();
-				ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+			if (auto _tt = Util::HoverTooltipWrapper()) {
 				ImGui::Text("Log level. Trace is most verbose. Default is info.");
-				ImGui::PopTextWrapPos();
-				ImGui::EndTooltip();
 			}
 
 			auto& shaderDefines = State::GetSingleton()->shaderDefinesString;
 			if (ImGui::InputText("Shader Defines", &shaderDefines)) {
 				State::GetSingleton()->SetDefines(shaderDefines);
 			}
-			if (ImGui::IsItemHovered()) {
-				ImGui::BeginTooltip();
-				ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+			if (auto _tt = Util::HoverTooltipWrapper()) {
 				ImGui::Text("Defines for Shader Compiler. Semicolon \";\" separated. Clear with space. Rebuild shaders after making change. Compute Shaders require a restart to recompile.");
-				ImGui::PopTextWrapPos();
-				ImGui::EndTooltip();
 			}
 			ImGui::Spacing();
 			ImGui::SliderInt("Compiler Threads", &shaderCache.compilationThreadCount, 1, static_cast<int32_t>(std::thread::hardware_concurrency()));
-			if (ImGui::IsItemHovered()) {
-				ImGui::BeginTooltip();
-				ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+			if (auto _tt = Util::HoverTooltipWrapper()) {
 				ImGui::Text(
 					"Number of threads to use to compile shaders. "
 					"The more threads the faster compilation will finish but may make the system unresponsive. ");
-				ImGui::PopTextWrapPos();
-				ImGui::EndTooltip();
 			}
 			ImGui::SliderInt("Background Compiler Threads", &shaderCache.backgroundCompilationThreadCount, 1, static_cast<int32_t>(std::thread::hardware_concurrency()));
-			if (ImGui::IsItemHovered()) {
-				ImGui::BeginTooltip();
-				ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+			if (auto _tt = Util::HoverTooltipWrapper()) {
 				ImGui::Text(
 					"Number of threads to use to compile shaders while playing game. "
 					"This is activated if the startup compilation is skipped. "
 					"The more threads the faster compilation will finish but may make the system unresponsive. ");
-				ImGui::PopTextWrapPos();
-				ImGui::EndTooltip();
 			}
 
 			if (ImGui::SliderInt("Test Interval", (int*)&testInterval, 0, 10)) {
@@ -566,19 +354,28 @@ void Menu::DrawSettings()
 					logger::info("Setting new interval {}.", testInterval);
 				}
 			}
-			if (ImGui::IsItemHovered()) {
-				ImGui::BeginTooltip();
-				ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+			if (auto _tt = Util::HoverTooltipWrapper()) {
 				ImGui::Text(
 					"Sets number of seconds before toggling between default USER and TEST config. "
 					"0 disables. Non-zero will enable testing mode. "
 					"Enabling will save current settings as TEST config. "
 					"This has no impact if no settings are changed. ");
-				ImGui::PopTextWrapPos();
-				ImGui::EndTooltip();
 			}
 			if (ImGui::Button("Dump Ini Settings", { -1, 0 })) {
 				Util::DumpSettingsOptions();
+			}
+			if (!shaderCache.blockedKey.empty()) {
+				auto blockingButtonString = std::format("Stop Blocking {} Shaders", shaderCache.blockedIDs.size());
+				if (ImGui::Button(blockingButtonString.c_str(), { -1, 0 })) {
+					shaderCache.DisableShaderBlocking();
+				}
+				if (auto _tt = Util::HoverTooltipWrapper()) {
+					ImGui::Text(
+						"Stop blocking Community Shaders shader. "
+						"Blocking is helpful when debugging shader errors in game to determine which shader has issues. "
+						"Blocking is enabled if in developer mode and pressing PAGEUP and PAGEDOWN. "
+						"Specific shader will be printed to logfile. ");
+				}
 			}
 			if (ImGui::TreeNodeEx("Statistics", ImGuiTreeNodeFlags_DefaultOpen)) {
 				ImGui::Text(std::format("Shader Compiler : {}", shaderCache.GetShaderStatsString()).c_str());
@@ -627,20 +424,30 @@ void Menu::DrawSettings()
 			}
 
 			ImGui::TableNextColumn();
+
+			bool shownFeature = selectedFeature < featureList.size();
+			if (shownFeature) {
+				if (ImGui::Button("Restore Defaults", { -1, 0 })) {
+					featureList[selectedFeature]->RestoreDefaultSettings();
+				}
+				if (auto _tt = Util::HoverTooltipWrapper()) {
+					ImGui::Text(
+						"Restores the feature's settings back to their default values. "
+						"You will still need to Save Settings to make these changes permanent. ");
+				}
+			}
+
 			if (ImGui::BeginChild("##FeatureConfigFrame", { 0, 0 }, true)) {
-				bool shownFeature = false;
-				for (size_t i = 0; i < featureList.size(); i++)
-					if (i == selectedFeature) {
-						shownFeature = true;
-						featureList[i]->DrawSettings();
-					}
-				if (!shownFeature)
+				if (shownFeature)
+					featureList[selectedFeature]->DrawSettings();
+				else
 					ImGui::TextDisabled("Please select a feature on the left.");
 			}
 			ImGui::EndChild();
 
 			ImGui::EndTable();
 		}
+		ImGui::PopStyleColor(1);
 	}
 
 	ImGui::End();
@@ -653,6 +460,8 @@ void Menu::DrawSettings()
 
 void Menu::DrawOverlay()
 {
+	ProcessInputEventQueue();  //Synchronize Inputs to frame
+
 	// Start the Dear ImGui frame
 	ImGui_ImplDX11_NewFrame();
 	ImGui_ImplWin32_NewFrame();
@@ -693,17 +502,22 @@ void Menu::DrawOverlay()
 		}
 
 		ImGui::End();
-	} else if (failed && !hide) {
-		ImGui::SetNextWindowBgAlpha(1);
-		ImGui::SetNextWindowPos(ImVec2(10, 10));
-		if (!ImGui::Begin("ShaderCompilationInfo", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings)) {
-			ImGui::End();
-			return;
-		}
+	} else if (failed) {
+		TextColor = ImVec4{ 1.0f, 0.0f, 0.0f, 1.0f };
+		if (!hide) {
+			ImGui::SetNextWindowBgAlpha(1);
+			ImGui::SetNextWindowPos(ImVec2(10, 10));
+			if (!ImGui::Begin("ShaderCompilationInfo", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings)) {
+				ImGui::End();
+				return;
+			}
 
-		ImGui::Text("ERROR: %d shaders failed to compile. Check installation and CommunityShaders.log", failed, totalShaders);
-		ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255));
-		ImGui::End();
+			ImGui::TextColored(TextColor, "ERROR: %d shaders failed to compile. Check installation and CommunityShaders.log", failed, totalShaders);
+			ImGui::End();
+		}
+	} else {
+		// Done compiling with no failures
+		TextColor = ImVec4{ 1.0f, 1.0f, 1.0f, 1.0f };
 	}
 
 	if (IsEnabled) {
@@ -734,33 +548,6 @@ void Menu::DrawOverlay()
 
 	ImGui::Render();
 	ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-}
-
-const char* Menu::KeyIdToString(uint32_t key)
-{
-	if (key >= 256)
-		return "";
-
-	static const char* keyboard_keys_international[256] = {
-		"", "Left Mouse", "Right Mouse", "Cancel", "Middle Mouse", "X1 Mouse", "X2 Mouse", "", "Backspace", "Tab", "", "", "Clear", "Enter", "", "",
-		"Shift", "Control", "Alt", "Pause", "Caps Lock", "", "", "", "", "", "", "Escape", "", "", "", "",
-		"Space", "Page Up", "Page Down", "End", "Home", "Left Arrow", "Up Arrow", "Right Arrow", "Down Arrow", "Select", "", "", "Print Screen", "Insert", "Delete", "Help",
-		"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "", "", "", "", "", "",
-		"", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O",
-		"P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "Left Windows", "Right Windows", "Apps", "", "Sleep",
-		"Numpad 0", "Numpad 1", "Numpad 2", "Numpad 3", "Numpad 4", "Numpad 5", "Numpad 6", "Numpad 7", "Numpad 8", "Numpad 9", "Numpad *", "Numpad +", "", "Numpad -", "Numpad Decimal", "Numpad /",
-		"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12", "F13", "F14", "F15", "F16",
-		"F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24", "", "", "", "", "", "", "", "",
-		"Num Lock", "Scroll Lock", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-		"Left Shift", "Right Shift", "Left Control", "Right Control", "Left Menu", "Right Menu", "Browser Back", "Browser Forward", "Browser Refresh", "Browser Stop", "Browser Search", "Browser Favorites", "Browser Home", "Volume Mute", "Volume Down", "Volume Up",
-		"Next Track", "Previous Track", "Media Stop", "Media Play/Pause", "Mail", "Media Select", "Launch App 1", "Launch App 2", "", "", "OEM ;", "OEM +", "OEM ,", "OEM -", "OEM .", "OEM /",
-		"OEM ~", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-		"", "", "", "", "", "", "", "", "", "", "", "OEM [", "OEM \\", "OEM ]", "OEM '", "OEM 8",
-		"", "", "OEM <", "", "", "", "", "", "", "", "", "", "", "", "", "",
-		"", "", "", "", "", "", "Attn", "CrSel", "ExSel", "Erase EOF", "Play", "Zoom", "", "PA1", "OEM Clear", ""
-	};
-
-	return keyboard_keys_international[key];
 }
 
 const ImGuiKey Menu::VirtualKeyToImGuiKey(WPARAM vkKey)
@@ -977,4 +764,189 @@ const ImGuiKey Menu::VirtualKeyToImGuiKey(WPARAM vkKey)
 	default:
 		return ImGuiKey_None;
 	};
+}
+
+inline const uint32_t Menu::DIKToVK(uint32_t DIK)
+{
+	switch (DIK) {
+	case DIK_LEFTARROW:
+		return VK_LEFT;
+	case DIK_RIGHTARROW:
+		return VK_RIGHT;
+	case DIK_UPARROW:
+		return VK_UP;
+	case DIK_DOWNARROW:
+		return VK_DOWN;
+	case DIK_DELETE:
+		return VK_DELETE;
+	case DIK_END:
+		return VK_END;
+	case DIK_HOME:
+		return VK_HOME;  // pos1
+	case DIK_PRIOR:
+		return VK_PRIOR;  // page up
+	case DIK_NEXT:
+		return VK_NEXT;  // page down
+	case DIK_INSERT:
+		return VK_INSERT;
+	case DIK_NUMPAD0:
+		return VK_NUMPAD0;
+	case DIK_NUMPAD1:
+		return VK_NUMPAD1;
+	case DIK_NUMPAD2:
+		return VK_NUMPAD2;
+	case DIK_NUMPAD3:
+		return VK_NUMPAD3;
+	case DIK_NUMPAD4:
+		return VK_NUMPAD4;
+	case DIK_NUMPAD5:
+		return VK_NUMPAD5;
+	case DIK_NUMPAD6:
+		return VK_NUMPAD6;
+	case DIK_NUMPAD7:
+		return VK_NUMPAD7;
+	case DIK_NUMPAD8:
+		return VK_NUMPAD8;
+	case DIK_NUMPAD9:
+		return VK_NUMPAD9;
+	case DIK_DECIMAL:
+		return VK_DECIMAL;
+	case DIK_NUMPADENTER:
+		return IM_VK_KEYPAD_ENTER;
+	case DIK_RMENU:
+		return VK_RMENU;  // right alt
+	case DIK_RCONTROL:
+		return VK_RCONTROL;  // right control
+	case DIK_LWIN:
+		return VK_LWIN;  // left win
+	case DIK_RWIN:
+		return VK_RWIN;  // right win
+	case DIK_APPS:
+		return VK_APPS;
+	default:
+		return DIK;
+	}
+}
+
+void Menu::ProcessInputEventQueue()
+{
+	std::unique_lock<std::shared_mutex> mutex(_inputEventMutex);
+	ImGuiIO& io = ImGui::GetIO();
+
+	for (auto& event : _keyEventQueue) {
+		if (event.eventType == RE::INPUT_EVENT_TYPE::kChar) {
+			io.AddInputCharacter(event.keyCode);
+		}
+
+		if (event.device == RE::INPUT_DEVICE::kMouse) {
+			logger::trace("Detect mouse scan code {} value {} pressed: {}", event.keyCode, event.value, event.IsPressed());
+			if (event.keyCode > 7) {  // middle scroll
+				io.AddMouseWheelEvent(0, event.value * (event.keyCode == 8 ? 1 : -1));
+			} else {
+				if (event.keyCode > 5)
+					event.keyCode = 5;
+				io.AddMouseButtonEvent(event.keyCode, event.IsPressed());
+			}
+		}
+
+		if (event.device == RE::INPUT_DEVICE::kKeyboard) {
+			uint32_t key = DIKToVK(event.keyCode);
+			logger::trace("Detected key code {} ({})", event.keyCode, key);
+			if (key == event.keyCode)
+				key = MapVirtualKeyEx(event.keyCode, MAPVK_VSC_TO_VK_EX, GetKeyboardLayout(0));
+			if (!event.IsPressed()) {
+				if (settingToggleKey) {
+					toggleKey = key;
+					settingToggleKey = false;
+				} else if (settingSkipCompilationKey) {
+					skipCompilationKey = key;
+					settingSkipCompilationKey = false;
+				} else if (settingsEffectsToggle) {
+					effectToggleKey = key;
+					settingsEffectsToggle = false;
+				} else if (key == toggleKey) {
+					IsEnabled = !IsEnabled;
+				} else if (key == skipCompilationKey) {
+					auto& shaderCache = SIE::ShaderCache::Instance();
+					shaderCache.backgroundCompilation = true;
+				} else if (key == effectToggleKey) {
+					auto& shaderCache = SIE::ShaderCache::Instance();
+					shaderCache.SetEnabled(!shaderCache.IsEnabled());
+				} else if (key == priorShaderKey && State::GetSingleton()->IsDeveloperMode()) {
+					auto& shaderCache = SIE::ShaderCache::Instance();
+					shaderCache.IterateShaderBlock();
+				} else if (key == nextShaderKey && State::GetSingleton()->IsDeveloperMode()) {
+					auto& shaderCache = SIE::ShaderCache::Instance();
+					shaderCache.IterateShaderBlock(false);
+				}
+			}
+
+			io.AddKeyEvent(VirtualKeyToImGuiKey(key), event.IsPressed());
+
+			if (key == VK_LCONTROL || key == VK_RCONTROL)
+				io.AddKeyEvent(ImGuiMod_Ctrl, event.IsPressed());
+			else if (key == VK_LSHIFT || key == VK_RSHIFT)
+				io.AddKeyEvent(ImGuiMod_Shift, event.IsPressed());
+			else if (key == VK_LMENU || key == VK_RMENU)
+				io.AddKeyEvent(ImGuiMod_Alt, event.IsPressed());
+		}
+	}
+
+	_keyEventQueue.clear();
+}
+
+void Menu::addToEventQueue(KeyEvent e)
+{
+	std::unique_lock<std::shared_mutex> mutex(_inputEventMutex);
+	_keyEventQueue.emplace_back(e);
+}
+
+void Menu::OnFocusLost()
+{
+	std::unique_lock<std::shared_mutex> mutex(_inputEventMutex);
+	_keyEventQueue.clear();
+}
+
+void Menu::ProcessInputEvents(RE::InputEvent* const* a_events)
+{
+	for (auto it = *a_events; it; it = it->next) {
+		if (it->GetEventType() != RE::INPUT_EVENT_TYPE::kButton && it->GetEventType() != RE::INPUT_EVENT_TYPE::kChar)  // we do not care about non button or char events
+			continue;
+
+		auto event = it->GetEventType() == RE::INPUT_EVENT_TYPE::kButton ? KeyEvent(static_cast<RE::ButtonEvent*>(it)) : it->GetEventType() == RE::INPUT_EVENT_TYPE::kChar ? KeyEvent(static_cast<CharEvent*>(it)) :
+		                                                                                                                                                                     KeyEvent(nullptr);  // last ternary operation should never be taken
+		addToEventQueue(event);
+	}
+}
+
+bool Menu::ShouldSwallowInput()
+{
+	return IsEnabled;
+}
+
+const char* Menu::KeyIdToString(uint32_t key)
+{
+	if (key >= 256)
+		return "";
+
+	static const char* keyboard_keys_international[256] = {
+		"", "Left Mouse", "Right Mouse", "Cancel", "Middle Mouse", "X1 Mouse", "X2 Mouse", "", "Backspace", "Tab", "", "", "Clear", "Enter", "", "",
+		"Shift", "Control", "Alt", "Pause", "Caps Lock", "", "", "", "", "", "", "Escape", "", "", "", "",
+		"Space", "Page Up", "Page Down", "End", "Home", "Left Arrow", "Up Arrow", "Right Arrow", "Down Arrow", "Select", "", "", "Print Screen", "Insert", "Delete", "Help",
+		"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "", "", "", "", "", "",
+		"", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O",
+		"P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "Left Windows", "Right Windows", "Apps", "", "Sleep",
+		"Numpad 0", "Numpad 1", "Numpad 2", "Numpad 3", "Numpad 4", "Numpad 5", "Numpad 6", "Numpad 7", "Numpad 8", "Numpad 9", "Numpad *", "Numpad +", "", "Numpad -", "Numpad Decimal", "Numpad /",
+		"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12", "F13", "F14", "F15", "F16",
+		"F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24", "", "", "", "", "", "", "", "",
+		"Num Lock", "Scroll Lock", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+		"Left Shift", "Right Shift", "Left Control", "Right Control", "Left Menu", "Right Menu", "Browser Back", "Browser Forward", "Browser Refresh", "Browser Stop", "Browser Search", "Browser Favorites", "Browser Home", "Volume Mute", "Volume Down", "Volume Up",
+		"Next Track", "Previous Track", "Media Stop", "Media Play/Pause", "Mail", "Media Select", "Launch App 1", "Launch App 2", "", "", "OEM ;", "OEM +", "OEM ,", "OEM -", "OEM .", "OEM /",
+		"OEM ~", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+		"", "", "", "", "", "", "", "", "", "", "", "OEM [", "OEM \\", "OEM ]", "OEM '", "OEM 8",
+		"", "", "OEM <", "", "", "", "", "", "", "", "", "", "", "", "", "",
+		"", "", "", "", "", "", "Attn", "CrSel", "ExSel", "Erase EOF", "Play", "Zoom", "", "PA1", "OEM Clear", ""
+	};
+
+	return keyboard_keys_international[key];
 }
