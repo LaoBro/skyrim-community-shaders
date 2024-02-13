@@ -13,14 +13,11 @@ void DistantTreeLighting::DrawSettings()
 {
 	if (ImGui::TreeNodeEx("Complex Tree LOD", ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::Checkbox("Enable Complex Tree LOD", (bool*)&settings.EnableComplexTreeLOD);
-		if (ImGui::IsItemHovered()) {
-			ImGui::BeginTooltip();
-			ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
-			ImGui::Text("Enables advanced lighting simulation on tree LOD.\n");
-			ImGui::Text("Requires DynDOLOD.\n");
-			ImGui::Text("See https://dyndolod.info/ for more information.");
-			ImGui::PopTextWrapPos();
-			ImGui::EndTooltip();
+		if (auto _tt = Util::HoverTooltipWrapper()) {
+			ImGui::Text(
+				"Enables advanced lighting simulation on tree LOD. "
+				"Requires DynDOLOD. "
+				"See https://dyndolod.info/ for more information. ");
 		}
 
 		ImGui::Spacing();
@@ -30,12 +27,8 @@ void DistantTreeLighting::DrawSettings()
 
 	if (ImGui::TreeNodeEx("Lights", ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::Checkbox("Enable Directional Light Fix", (bool*)&settings.EnableDirLightFix);
-		if (ImGui::IsItemHovered()) {
-			ImGui::BeginTooltip();
-			ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+		if (auto _tt = Util::HoverTooltipWrapper()) {
 			ImGui::Text("Fix for trees not being affected by sunlight scale.");
-			ImGui::PopTextWrapPos();
-			ImGui::EndTooltip();
 		}
 
 		ImGui::Spacing();
@@ -45,15 +38,12 @@ void DistantTreeLighting::DrawSettings()
 
 	if (ImGui::TreeNodeEx("Effects", ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::SliderFloat("SSS Amount", &settings.SubsurfaceScatteringAmount, 0.0f, 1.0f);
-		if (ImGui::IsItemHovered()) {
-			ImGui::BeginTooltip();
-			ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
-			ImGui::Text("Subsurface Scattering (SSS) amount\n");
-			ImGui::Text("Soft lighting controls how evenly lit an object is.\n");
-			ImGui::Text("Back lighting illuminates the back face of an object.\n");
-			ImGui::Text("Combined to model the transport of light through the surface.");
-			ImGui::PopTextWrapPos();
-			ImGui::EndTooltip();
+		if (auto _tt = Util::HoverTooltipWrapper()) {
+			ImGui::Text(
+				"Subsurface Scattering (SSS) amount. "
+				"Soft lighting controls how evenly lit an object is. "
+				"Back lighting illuminates the back face of an object. "
+				"Combined to model the transport of light through the surface. ");
 		}
 
 		ImGui::Spacing();
@@ -158,6 +148,11 @@ void DistantTreeLighting::Load(json& o_json)
 void DistantTreeLighting::Save(json& o_json)
 {
 	o_json[GetName()] = settings;
+}
+
+void DistantTreeLighting::RestoreDefaultSettings()
+{
+	settings = {};
 }
 
 void DistantTreeLighting::SetupResources()

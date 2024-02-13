@@ -8,7 +8,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-static constexpr REL::Version SHADER_CACHE_VERSION = { 0, 0, 0, 13 };
+static constexpr REL::Version SHADER_CACHE_VERSION = { 0, 0, 0, 16 };
 
 using namespace std::chrono;
 
@@ -102,7 +102,8 @@ namespace SIE
 				       type == RE::BSShader::Type::Sky ||
 				       type == RE::BSShader::Type::Grass ||
 				       type == RE::BSShader::Type::Particle ||
-				       type == RE::BSShader::Type::Water;
+				       type == RE::BSShader::Type::Water ||
+				       type == RE::BSShader::Type::Effect;
 			return type == RE::BSShader::Type::Lighting ||
 			       type == RE::BSShader::Type::Grass;
 		}
@@ -149,6 +150,8 @@ namespace SIE
 		uint64_t GetTotalTasks();
 		void IncCacheHitTasks();
 		void ToggleErrorMessages();
+		void DisableShaderBlocking();
+		void IterateShaderBlock(bool a_forward = true);
 		bool IsHideErrors();
 
 		int32_t compilationThreadCount = std::max(static_cast<int32_t>(std::thread::hardware_concurrency()) - 1, 1);
@@ -227,6 +230,40 @@ namespace SIE
 			Flowmap = 1 << 9,
 			BlendNormals = 1 << 10,
 		};
+
+		enum class EffectShaderFlags
+		{
+			Vc = 1 << 0,
+			TexCoord = 1 << 1,
+			TexCoordIndex = 1 << 2,
+			Skinned = 1 << 3,
+			Normals = 1 << 4,
+			BinormalTangent = 1 << 5,
+			Texture = 1 << 6,
+			IndexedTexture = 1 << 7,
+			Falloff = 1 << 8,
+			AddBlend = 1 << 10,
+			MultBlend = 1 << 11,
+			Particles = 1 << 12,
+			StripParticles = 1 << 13,
+			Blood = 1 << 14,
+			Membrane = 1 << 15,
+			Lighting = 1 << 16,
+			ProjectedUv = 1 << 17,
+			Soft = 1 << 18,
+			GrayscaleToColor = 1 << 19,
+			GrayscaleToAlpha = 1 << 20,
+			IgnoreTexAlpha = 1 << 21,
+			MultBlendDecal = 1 << 22,
+			AlphaTest = 1 << 23,
+			SkyObject = 1 << 24,
+			MsnSpuSkinned = 1 << 25,
+			MotionVectorsNormals = 1 << 26,
+		};
+
+		uint blockedKeyIndex = (uint)-1;  // index in shaderMap; negative value indicates disabled
+		std::string blockedKey = "";
+		std::vector<uint32_t> blockedIDs;  // more than one descriptor could be blocked based on shader hash
 
 	private:
 		ShaderCache();

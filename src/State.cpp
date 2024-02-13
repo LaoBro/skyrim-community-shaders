@@ -22,16 +22,15 @@ void State::Draw()
 				auto context = RE::BSGraphics::Renderer::GetSingleton()->GetRuntimeData().context;
 
 				if (auto vertexShader = shaderCache.GetVertexShader(*currentShader, currentVertexDescriptor)) {
-					context->VSSetShader(vertexShader->shader, NULL, NULL);
-				}
+					if (auto pixelShader = shaderCache.GetPixelShader(*currentShader, currentPixelDescriptor)) {
+						context->VSSetShader(vertexShader->shader, NULL, NULL);
+						context->PSSetShader(pixelShader->shader, NULL, NULL);
 
-				if (auto pixelShader = shaderCache.GetPixelShader(*currentShader, currentPixelDescriptor)) {
-					context->PSSetShader(pixelShader->shader, NULL, NULL);
-				}
-
-				for (auto* feature : Feature::GetFeatureList()) {
-					if (feature->loaded) {
-						feature->Draw(currentShader, currentPixelDescriptor);
+						for (auto* feature : Feature::GetFeatureList()) {
+							if (feature->loaded) {
+								feature->Draw(currentShader, currentPixelDescriptor);
+							}
+						}
 					}
 				}
 			}
@@ -188,12 +187,6 @@ void State::Load(bool a_test)
 		logger::info("Found older config for version {}; upgrading to {}", (std::string)settings["Version"], Plugin::VERSION.string());
 		Save();
 	}
-
-	upscalerLoaded = GetModuleHandleW(L"Data\\SKSE\\Plugins\\SkyrimUpscaler.dll");
-	if (upscalerLoaded)
-		logger::info("Skyrim Upscaler detected");
-	else
-		logger::info("Skyrim Upscaler not detected");
 }
 
 void State::Save(bool a_test)
@@ -232,6 +225,15 @@ void State::Save(bool a_test)
 
 	o << settings.dump(1);
 	logger::info("Saving settings to {}", userConfigPath);
+}
+
+void State::PostPostLoad()
+{
+	upscalerLoaded = GetModuleHandle(L"Data\\SKSE\\Plugins\\SkyrimUpscaler.dll");
+	if (upscalerLoaded)
+		logger::info("Skyrim Upscaler detected");
+	else
+		logger::info("Skyrim Upscaler not detected");
 }
 
 bool State::ValidateCache(CSimpleIniA& a_ini)
@@ -428,7 +430,7 @@ void State::UpdateSharedData(const RE::BSShader* a_shader, const uint32_t)
 										  RE::BSGraphics::RendererShadowState::GetSingleton()->GetRuntimeData().cubeMapRenderTarget :
 										  RE::BSGraphics::RendererShadowState::GetSingleton()->GetVRRuntimeData().cubeMapRenderTarget) == RE::RENDER_TARGETS_CUBEMAP::kREFLECTIONS;
 
-		if (lightingData.Reflections != currentReflections) {
+		if (lightingData.Reflections != (uint)currentReflections) {
 			updateBuffer = true;
 			lightingDataRequiresUpdate = true;
 		}

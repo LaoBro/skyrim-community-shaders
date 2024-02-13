@@ -23,19 +23,19 @@ public:
 		uint EnableWetnessEffects = true;
 		float MaxRainWetness = 1.0f;
 		float MaxShoreWetness = 0.5f;
-		float MaxDarkness = 1.0f;
-		float MaxOcclusion = 0.15f;
-		float MinRoughness = 0.1f;
 		uint ShoreRange = 32;
-		float PuddleMinWetness = 0.7f;
 		float PuddleRadius = 1.0f;
-		float PuddleMaxAngle = 0.9f;
-		float PuddleFlatness = 0.95f;
+		float PuddleMaxAngle = 0.95f;
+		float PuddleMinWetness = 0.85f;
+		float MinRainWetness = 0.65f;
+		float SkinWetness = 0.825f;
+		float WeatherTransitionSpeed = 3.0f;
 	};
 
-	struct PerPass
+	struct alignas(16) PerPass
 	{
 		float Wetness;
+		float PuddleWetness;
 		DirectX::XMFLOAT3X4 DirectionalAmbientWS;
 		Settings settings;
 	};
@@ -45,6 +45,11 @@ public:
 	std::unique_ptr<Buffer> perPass = nullptr;
 
 	bool requiresUpdate = true;
+	float wetnessDepth = 0.0f;
+	float puddleDepth = 0.0f;
+	float lastGameTimeValue = 0.0f;
+	uint32_t currentWeatherID = 0;
+	uint32_t lastWeatherID = 0;
 
 	virtual void SetupResources();
 	virtual void Reset();
@@ -55,4 +60,8 @@ public:
 
 	virtual void Load(json& o_json);
 	virtual void Save(json& o_json);
+
+	virtual void RestoreDefaultSettings();
+	float CalculateWeatherTransitionPercentage(float skyCurrentWeatherPct, float beginFade, bool fadeIn);
+	void CalculateWetness(RE::TESWeather* weather, RE::Sky* sky, float seconds, float& wetness, float& puddleWetness);
 };

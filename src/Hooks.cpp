@@ -217,6 +217,40 @@ void hk_BSShaderRenderTargets_Create()
 	State::GetSingleton()->Setup();
 }
 
+static void hk_PollInputDevices(RE::BSTEventSource<RE::InputEvent*>* a_dispatcher, RE::InputEvent* const* a_events);
+static inline REL::Relocation<decltype(hk_PollInputDevices)> _InputFunc;
+
+void hk_PollInputDevices(RE::BSTEventSource<RE::InputEvent*>* a_dispatcher, RE::InputEvent* const* a_events)
+{
+	bool blockedDevice = true;
+	auto menu = Menu::GetSingleton();
+
+	if (a_events) {
+		menu->ProcessInputEvents(a_events);
+
+		if (*a_events) {
+			if (auto device = (*a_events)->GetDevice()) {
+				// Check that the device is not a Gamepad or VR controller. If it is, unblock input.
+				auto vrDevice = (REL::Module::IsVR() && ((device == RE::INPUT_DEVICES::INPUT_DEVICE::kVivePrimary) ||
+															(device == RE::INPUT_DEVICES::INPUT_DEVICE::kViveSecondary) ||
+															(device == RE::INPUT_DEVICES::INPUT_DEVICE::kOculusPrimary) ||
+															(device == RE::INPUT_DEVICES::INPUT_DEVICE::kOculusSecondary) ||
+															(device == RE::INPUT_DEVICES::INPUT_DEVICE::kWMRPrimary) ||
+															(device == RE::INPUT_DEVICES::INPUT_DEVICE::kWMRSecondary)));
+				blockedDevice = !((device == RE::INPUT_DEVICES::INPUT_DEVICE::kGamepad) || vrDevice);
+			}
+		}
+	}
+
+	if (blockedDevice && menu->ShouldSwallowInput()) {  //the menu is open, eat all keypresses
+		constexpr RE::InputEvent* const dummy[] = { nullptr };
+		_InputFunc(a_dispatcher, dummy);
+		return;
+	}
+
+	_InputFunc(a_dispatcher, a_events);
+}
+
 namespace Hooks
 {
 	struct BSGraphics_Renderer_Init_InitD3D
@@ -279,8 +313,40 @@ namespace Hooks
 		static inline REL::Relocation<decltype(thunk)> func;
 	};
 
+	struct WndProcHandler_Hook
+	{
+		static LRESULT thunk(HWND a_hwnd, UINT a_msg, WPARAM a_wParam, LPARAM a_lParam)
+		{
+			if (a_msg == WM_KILLFOCUS) {
+				Menu::GetSingleton()->OnFocusLost();
+				auto& io = ImGui::GetIO();
+				io.ClearInputKeys();
+				io.ClearEventsQueue();
+			}
+			return func(a_hwnd, a_msg, a_wParam, a_lParam);
+		}
+		static inline REL::Relocation<decltype(thunk)> func;
+	};
+
+	struct RegisterClassA_Hook
+	{
+		static ATOM thunk(WNDCLASSA* a_wndClass)
+		{
+			WndProcHandler_Hook::func = reinterpret_cast<uintptr_t>(a_wndClass->lpfnWndProc);
+			a_wndClass->lpfnWndProc = &WndProcHandler_Hook::thunk;
+
+			return func(a_wndClass);
+		}
+		static inline REL::Relocation<decltype(thunk)> func;
+	};
+
 	void Install()
 	{
+		SKSE::AllocTrampoline(14);
+		auto& trampoline = SKSE::GetTrampoline();
+		logger::info("Hooking BSInputDeviceManager::PollInputDevices");
+		_InputFunc = trampoline.write_call<5>(REL::RelocationID(67315, 68617).address() + REL::Relocate(0x7B, 0x7B, 0x81), hk_PollInputDevices);  //BSInputDeviceManager::PollInputDevices -> Inputfunc
+
 		logger::info("Hooking BSShader::LoadShaders");
 		*(uintptr_t*)&ptr_BSShader_LoadShaders = Detours::X64::DetourFunction(REL::RelocationID(101339, 108326).address(), (uintptr_t)&hk_BSShader_LoadShaders);
 		logger::info("Hooking BSShader::BeginTechnique");
@@ -294,6 +360,9 @@ namespace Hooks
 		stl::write_vfunc<0x2, BSImagespaceShaderISSAOCompositeSAO_SetupTechnique>(RE::VTABLE_BSImagespaceShaderISSAOCompositeSAO[0]);
 		stl::write_vfunc<0x2, BSImagespaceShaderISSAOCompositeFog_SetupTechnique>(RE::VTABLE_BSImagespaceShaderISSAOCompositeFog[0]);
 		stl::write_vfunc<0x2, BSImagespaceShaderISSAOCompositeSAOFog_SetupTechnique>(RE::VTABLE_BSImagespaceShaderISSAOCompositeSAOFog[0]);
+
+		logger::info("Hooking WndProcHandler");
+		stl::write_thunk_call_6<RegisterClassA_Hook>(REL::VariantID(75591, 77226, 0xDC4B90).address() + REL::VariantOffset(0x8E, 0x15C, 0x99).offset());
 
 		//logger::info("Hooking D3D11CreateDeviceAndSwapChain");
 		//*(FARPROC*)&ptrD3D11CreateDeviceAndSwapChain = GetProcAddress(GetModuleHandleA("d3d11.dll"), "D3D11CreateDeviceAndSwapChain");
