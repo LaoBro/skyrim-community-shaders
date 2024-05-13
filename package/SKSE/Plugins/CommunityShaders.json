@@ -55,7 +55,7 @@
   "ImageSpace": false,
   "Lighting": true,
   "Particle": false,
-  "Sky": false,
+  "Sky": true,
   "Utility": false,
   "Water": true
  },

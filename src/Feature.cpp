@@ -11,6 +11,7 @@
 #include "Features/WaterBlending.h"
 #include "Features/PBR.h"
 #include "Features/WetnessEffects.h"
+#include "Features/Atmosphere.h"
 
 void Feature::Load(json&)
 {
@@ -75,25 +76,26 @@ const std::vector<Feature*>& Feature::GetFeatureList()
 {
 	// Cat: essentially load order i guess
 	static std::vector<Feature*> features = {
-		GrassLighting::GetSingleton(),
-		DistantTreeLighting::GetSingleton(),
-		GrassCollision::GetSingleton(),
+		//GrassLighting::GetSingleton(),
+		//DistantTreeLighting::GetSingleton(),
+		//GrassCollision::GetSingleton(),
 		ScreenSpaceShadows::GetSingleton(),
 		ExtendedMaterials::GetSingleton(),
-		WaterBlending::GetSingleton(),
+		//WaterBlending::GetSingleton(),
 		PBR::GetSingleton(),
-		WetnessEffects::GetSingleton(),
+		//WetnessEffects::GetSingleton(),
 		LightLimitFix::GetSingleton(),
 		DynamicCubemaps::GetSingleton(),
-		CloudShadows::GetSingleton()
+		//CloudShadows::GetSingleton(),
+		Atmosphere::GetSingleton()
 	};
 
 	static std::vector<Feature*> featuresVR = {
 		DynamicCubemaps::GetSingleton(),
-		GrassLighting::GetSingleton(),
-		GrassCollision::GetSingleton(),
+		//GrassLighting::GetSingleton(),
+		//GrassCollision::GetSingleton(),
 		ExtendedMaterials::GetSingleton(),
-		WetnessEffects::GetSingleton(),
+		//WetnessEffects::GetSingleton(),
 		LightLimitFix::GetSingleton()
 	};
 

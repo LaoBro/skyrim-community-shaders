@@ -58,27 +58,6 @@ cbuffer PerFrame : register(b3)
 	float pad1;
 }
 
-cbuffer PerFramePBR : register(b5)
-{	
-	float4 WorldEyePosition;
-	float NonMetalGlossiness;
-	float MetalGlossiness;
-	float MinRoughness;
-	float MaxRoughness;
-	float NonMetalThreshold;
-	float MetalThreshold;
-	float SunShadowAO;
-	float ParallaxAO;
-	float ParallaxScale;
-	float Exposure;
-	float GrassRoughness;
-	float GrassBentNormal;
-	float FogIntensity;
-	float AmbientDiffuse;
-	float AmbientSpecular;
-	float CubemapIntensity;
-}
-
 #ifdef VSHADER
 
 #ifdef GRASS_COLLISION
@@ -94,7 +73,6 @@ cbuffer cb8 : register(b8)
 {
 	float4 cb8[240];
 }
-
 
 #define M_PI  3.1415925 // PI
 #define M_2PI 6.283185 // PI * 2
@@ -176,13 +154,6 @@ VS_OUTPUT main(VS_INPUT input)
 
 	// Vertex normal needs to be transformed to world-space for lighting calculations.
 	float3 vertexNormal = input.Normal.xyz * 2.0 - 1.0;
-	float NdotV = dot(vsout.ViewDirectionVec, vertexNormal);
-	if(NdotV < 0){
-		vertexNormal = -vertexNormal;
-	}
-	//插值
-	vertexNormal = lerp(vertexNormal, float3(0,0,1), GrassBentNormal);
-	//float3 vertexNormal = lerp(input.Normal.xyz * 2.0 - 1.0, float3(0, 0, 1), input.TexCoord.y * input.TexCoord.y * saturate(input.Color.w > 0));
 	vertexNormal = mul(world3x3, vertexNormal);
 	vsout.VertexNormal.xyz = vertexNormal;
 
@@ -217,23 +188,10 @@ cbuffer AlphaTestRefCB								: register(b11)
 
 cbuffer PerFrame : register(b12)
 {
-    row_major float4x4  ViewMatrix                                                  : packoffset(c0);
-    row_major float4x4  ProjMatrix                                                  : packoffset(c4);
-    row_major float4x4  ViewProjMatrix                                              : packoffset(c8);
-    row_major float4x4  ViewProjMatrixUnjittered                                    : packoffset(c12);
-    row_major float4x4  PreviousViewProjMatrixUnjittered                            : packoffset(c16);
-    row_major float4x4  InvProjMatrixUnjittered                                     : packoffset(c20);
-    row_major float4x4  ProjMatrixUnjittered                                        : packoffset(c24);
-    row_major float4x4  InvViewMatrix                                               : packoffset(c28);
-    row_major float4x4  InvViewProjMatrix                                           : packoffset(c32);
-    row_major float4x4  InvProjMatrix                                               : packoffset(c36);
-    float4              CurrentPosAdjust                                            : packoffset(c40);
-    float4              PreviousPosAdjust                                           : packoffset(c41);
-    // notes: FirstPersonY seems 1.0 regardless of third/first person, could be LE legacy stuff
-    float4              GammaInvX_FirstPersonY_AlphaPassZ_CreationKitW              : packoffset(c42);
-    float4              DynamicRes_WidthX_HeightY_PreviousWidthZ_PreviousHeightW    : packoffset(c43);
-    float4              DynamicRes_InvWidthX_InvHeightY_WidthClampZ_HeightClampW    : packoffset(c44);
-}
+	float4 UnknownPerFrame1[12]						: packoffset(c0);
+	row_major float4x4 ScreenProj					: packoffset(c12);
+	row_major float4x4 PreviousScreenProj			: packoffset(c16);
+};
 
 struct StructuredLight
 {
@@ -292,12 +250,6 @@ float3x3 CalculateTBN(float3 N, float3 p, float2 uv)
 	return float3x3(T * invmax, B * invmax, N);
 }
 
-#include "PBR.hlsli"
-
-#if defined(SCREEN_SPACE_SHADOWS)
-	#include "ScreenSpaceShadows/ShadowsPS.hlsli"
-#endif
-
 PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 {
 	PS_OUTPUT psout;
@@ -317,8 +269,6 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 		baseColor = TexBaseSampler.Sample(SampBaseSampler, input.TexCoord.xy);
 	}
 
-	baseColor.xyz *= input.VertexColor.xyz;
-
 #if defined(RENDER_DEPTH) || defined(DO_ALPHA_TEST)
 	float diffuseAlpha = input.VertexColor.w * baseColor.w;
 	if ((diffuseAlpha - AlphaTestRefRS) < 0)
@@ -333,12 +283,12 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	psout.PS.w = diffuseAlpha;
 #else
 
-	float4 specColor = complex ? TexBaseSampler.Sample(SampBaseSampler, float2(input.TexCoord.x, 0.5 + input.TexCoord.y * 0.5)) : 0;
+	float4 specColor = complex ? TexBaseSampler.Sample(SampBaseSampler, float2(input.TexCoord.x, 0.5 + input.TexCoord.y * 0.5)) : 1;
 	float4 shadowColor = TexShadowMaskSampler.Load(int3(input.HPosition.xy, 0));
 
-	float4 screenPosition = mul(ViewProjMatrixUnjittered, input.WorldPosition);
+	float4 screenPosition = mul(ScreenProj, input.WorldPosition);
 	screenPosition.xy = screenPosition.xy / screenPosition.ww;
-	float4 previousScreenPosition = mul(PreviousViewProjMatrixUnjittered, input.PreviousWorldPosition);
+	float4 previousScreenPosition = mul(PreviousScreenProj, input.PreviousWorldPosition);
 	previousScreenPosition.xy = previousScreenPosition.xy / previousScreenPosition.ww;
 	float2 screenMotionVector = float2(-0.5, 0.5) * (screenPosition.xy - previousScreenPosition.xy);
 
@@ -354,8 +304,8 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	float3 viewDirection = normalize(input.ViewDirectionVec);
 	float3 worldNormal = normalize(input.VertexNormal);
 
-	// Swaps direction of the backfaces otherwise they seem to get lit from the wrong direction.
-	//if (!frontFace) worldNormal.xyz = -worldNormal.xyz;
+	// // Swaps direction of the backfaces otherwise they seem to get lit from the wrong direction.
+	if (!frontFace) worldNormal.xyz = -worldNormal.xyz;
 
 	if (complex) {
 		float3 normalColor = float4(TransformNormal(specColor.xyz), 1);
@@ -366,11 +316,6 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 		worldNormal.xyz = normalize(mul(normalColor.xyz, CalculateTBN(worldNormal.xyz, -viewDirection, input.TexCoord.xy)));
 	}
 
-	float roughness = saturate(GrassRoughness - specColor.w);
-	float2x3 totalRadiance = float2x3(0,0,0,0,0,0);
-	float NoV = saturate(dot(worldNormal,viewDirection));
-	float3 F0 = 0.04.xxx;
-
 	float3 dirLightColor = DirLightColor.xyz;
 	if (EnableDirLightFix)
 	{
@@ -379,16 +324,34 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 
 	dirLightColor *= shadowColor.x;
 
-#if defined(SCREEN_SPACE_SHADOWS)
-	float dirLightSShadow = PrepassScreenSpaceShadows(input.WorldPosition);
-	dirLightColor *= dirLightSShadow;
-#endif
-	
-	totalRadiance += GetLighting(worldNormal, DirLightDirection, viewDirection, NoV, F0, dirLightColor, roughness);
+	float3 diffuseColor = 0;
+	float3 specularColor = 0;
 
-	float shadow = 1;
+	float3 lightsDiffuseColor = 0;
+	float3 lightsSpecularColor = 0;
+
+	float dirLightAngle = dot(worldNormal.xyz, DirLightDirection.xyz);
+	float3 dirDiffuseColor = dirLightColor * saturate(dirLightAngle);
+
+	lightsDiffuseColor += dirDiffuseColor;
+
+	// Generated texture to simulate light transport.
+	// Numerous attempts were made to use a more interesting algorithm however they were mostly fruitless.
+	float3 subsurfaceColor = baseColor.xyz;
+
+	// Applies lighting across the whole surface apart from what is already lit.
+	lightsDiffuseColor += subsurfaceColor * dirLightColor * GetSoftLightMultiplier(dirLightAngle, SubsurfaceScatteringAmount);
+	// Applies lighting from the opposite direction. Does not account for normals perpendicular to the light source.
+	lightsDiffuseColor += subsurfaceColor * dirLightColor * saturate(-dirLightAngle) * SubsurfaceScatteringAmount;
+
+	if (complex) {
+		lightsSpecularColor = GetLightSpecularInput(DirLightDirection, viewDirection, worldNormal.xyz, dirLightColor.xyz, Glossiness);
+		// Not physically accurate but grass will otherwise look too flat.
+		lightsSpecularColor += subsurfaceColor * GetLightSpecularInput(-DirLightDirection, viewDirection, worldNormal.xyz, dirLightColor.xyz, Glossiness);
+	}
 
 	if (EnablePointLights) {
+		uint counter = 0;
 		uint light_count, dummy;
 		lights.GetDimensions(light_count, dummy);
 		for (uint light_index = 0; light_index < light_count; light_index++)
@@ -400,36 +363,46 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 				float intensityFactor = saturate(lightDist / light.radius);
 				float intensityMultiplier = 1 - intensityFactor * intensityFactor;
 				if (intensityMultiplier) {
-					float3 lightColor = light.color.xyz * intensityMultiplier;
+					counter++;
+					float3 lightColor = light.color.xyz;
 
 					if (light.shadow) {
 						lightColor *= shadowColor[light.mask];
 					}
-					
+
 					float3 normalizedLightDirection = normalize(lightDirection);
 
-					totalRadiance += GetLighting(worldNormal, normalizedLightDirection, viewDirection, NoV, F0, lightColor * intensityMultiplier, roughness);
+					float lightAngle = dot(worldNormal.xyz, normalizedLightDirection.xyz);
+					float3 lightDiffuseColor = lightColor * saturate(lightAngle.xxx);
+
+					lightDiffuseColor += subsurfaceColor * lightColor * GetSoftLightMultiplier(lightAngle, SubsurfaceScatteringAmount);
+					lightDiffuseColor += subsurfaceColor * lightColor * saturate(-lightAngle) * SubsurfaceScatteringAmount;
+
+					if (complex) {
+						lightsSpecularColor += GetLightSpecularInput(normalizedLightDirection, viewDirection, worldNormal.xyz, lightColor, Glossiness) * intensityMultiplier;
+						lightsSpecularColor += subsurfaceColor * GetLightSpecularInput(-normalizedLightDirection, viewDirection, worldNormal.xyz, lightColor, Glossiness) * intensityMultiplier;
+					}
+
+					lightsDiffuseColor += lightDiffuseColor * intensityMultiplier;
 				}
 			}
 		}
 	}
 
-	//环境光漫射
-	float ao = saturate(dirLightSShadow + SunShadowAO);
-	float3 directionalAmbientColor = mul(DirectionalAmbient, float4(worldNormal.xyz, 1)) * ao;
-	totalRadiance[0] += directionalAmbientColor * AmbientDiffuse;
+	float3 directionalAmbientColor = mul(DirectionalAmbient, float4(worldNormal.xyz, 1));
+	lightsDiffuseColor += directionalAmbientColor;
 
-	//环境光反射
-	float3 F = FastfresnelSchlick(NoV,F0);
-	float G = GeometrySchlickGGX(NoV, roughness);
-	G = G * G;
-	float3 ambientSpecular = directionalAmbientColor * F * G * AmbientSpecular;
-	totalRadiance[1] += ambientSpecular;
+	diffuseColor += lightsDiffuseColor;
 
-	//合并光照
-	float3 color = totalRadiance[0] * baseColor.xyz + totalRadiance[1];
+	float3 color = diffuseColor * baseColor.xyz * input.VertexColor.xyz;
 
-	psout.Albedo.xyz = color * Exposure;
+	if (complex) {
+		specularColor += lightsSpecularColor;
+		specularColor *= specColor.w * SpecularStrength;
+		color.xyz += specularColor;
+	}
+
+	psout.Albedo.xyz = color;
 	psout.Albedo.w = 1;
 
 #endif
