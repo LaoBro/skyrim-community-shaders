@@ -23,7 +23,9 @@
       "version>=": "1.88"
     },
     "eastl",
-    "clib-util"
+    "clib-util",
+    "unordered-dense",
+    "efsw"
   ],
   "overrides": [
     {

@@ -3,7 +3,6 @@
 #include "State.h"
 #include "Util.h"
 #include "Atmosphere.h"
-#include "GrassLighting.h"
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	PBR::Settings,
@@ -63,7 +62,8 @@ void PBR::ModifyLighting(const RE::BSShader*, const uint32_t)
 	if (UpdatedPerFrame) {
 		return;
 	}
-	auto context = RE::BSGraphics::Renderer::GetSingleton()->GetRuntimeData().context;
+	//auto context = RE::BSGraphics::Renderer::GetSingleton()->GetRuntimeData().context;
+	auto& context = State::GetSingleton()->context;
 	//auto accumulator = RE::BSGraphics::BSShaderAccumulator::GetCurrentAccumulator();
 	auto& state = RE::BSShaderManager::State::GetSingleton();
 	RE::NiTransform& dalcTransform = state.directionalAmbientTransform;
@@ -179,6 +179,11 @@ void PBR::BSLightingShader_SetupGeometry_Before(RE::BSRenderPass* Pass)
 	perPassData.RenderingCubemap = shadowState->GetRuntimeData().cubeMapRenderTarget == RE::RENDER_TARGETS_CUBEMAP::kREFLECTIONS;
 
 	perPass->Update(perPassData);
+}
+
+bool PBR::HasShaderDefine(RE::BSShader::Type)
+{
+	return true;
 }
 
 /* Get normal map in VS

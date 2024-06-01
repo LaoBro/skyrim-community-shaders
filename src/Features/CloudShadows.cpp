@@ -1,8 +1,9 @@
 #include "CloudShadows.h"
 
-#include "Util.h"
+#include "State.h"
 
-#include "magic_enum_flags.hpp"
+#include "Deferred.h"
+#include "Util.h"
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	CloudShadows::Settings,
@@ -10,22 +11,19 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	CloudHeight,
 	PlanetRadius,
 	EffectMix,
-	TransparencyPower,
-	AbsorptionAmbient)
+	TransparencyPower)
 
-class FrameChecker
+enum class SkyShaderTechniques
 {
-private:
-	uint32_t last_frame = UINT32_MAX;
-
-public:
-	inline bool isNewFrame(uint32_t frame)
-	{
-		bool retval = last_frame != frame;
-		last_frame = frame;
-		return retval;
-	}
-	inline bool isNewFrame() { return isNewFrame(RE::BSGraphics::State::GetSingleton()->uiFrameCount); }
+	SunOcclude = 0,
+	SunGlare = 1,
+	MoonAndStarsMask = 2,
+	Stars = 3,
+	Clouds = 4,
+	CloudsLerp = 5,
+	CloudsFade = 6,
+	Texture = 7,
+	Sky = 8,
 };
 
 void CloudShadows::DrawSettings()
@@ -40,13 +38,6 @@ void CloudShadows::DrawSettings()
 			ImGui::Text(
 				"The amount of light absorbed by the cloud is determined by the alpha of the cloud. "
 				"Negative value will result in more light absorbed, and more contrast between lit and occluded areas.");
-
-		ImGui::SliderFloat("Ambient Absorption", &settings.AbsorptionAmbient, 0.f, 1.f, "%.2f");
-		if (auto _tt = Util::HoverTooltipWrapper())
-			ImGui::Text(
-				"By default, ambient light is not affected by cloud, as it is an approximation of reflected light. "
-				"However, if you want darker ambient, you may turn it up a bit. "
-				"Not entirely physical, nonetheless helpful.");
 
 		ImGui::TreePop();
 	}
@@ -70,14 +61,29 @@ void CloudShadows::DrawSettings()
 
 void CloudShadows::CheckResourcesSide(int side)
 {
-	static FrameChecker frame_checker[6];
+	static Util::FrameChecker frame_checker[6];
 	if (!frame_checker[side].isNewFrame())
 		return;
 
-	auto context = RE::BSGraphics::Renderer::GetSingleton()->GetRuntimeData().context;
+	auto& context = State::GetSingleton()->context;
 
 	float black[4] = { 0, 0, 0, 0 };
 	context->ClearRenderTargetView(cubemapCloudOccRTVs[side], black);
+}
+
+void CloudShadows::CompileComputeShaders()
+{
+	logger::debug("Compiling shaders...");
+	{
+		outputProgram = reinterpret_cast<ID3D11ComputeShader*>(Util::CompileShader(L"Data\\Shaders\\CloudShadows\\output.cs.hlsl", { {} }, "cs_5_0"));
+	}
+}
+
+void CloudShadows::ClearShaderCache()
+{
+	if (outputProgram)
+		outputProgram->Release();
+	CompileComputeShaders();
 }
 
 void CloudShadows::ModifySky(const RE::BSShader*, const uint32_t descriptor)
@@ -85,8 +91,10 @@ void CloudShadows::ModifySky(const RE::BSShader*, const uint32_t descriptor)
 	if (!settings.EnableCloudShadows)
 		return;
 
-	auto shadowState = RE::BSGraphics::RendererShadowState::GetSingleton();
-	auto cubeMapRenderTarget = !REL::Module::IsVR() ? shadowState->GetRuntimeData().cubeMapRenderTarget : shadowState->GetVRRuntimeData().cubeMapRenderTarget;
+	auto& shadowState = State::GetSingleton()->shadowState;
+
+	GET_INSTANCE_MEMBER(cubeMapRenderTarget, shadowState);
+
 	if (cubeMapRenderTarget != RE::RENDER_TARGETS_CUBEMAP::kREFLECTIONS)
 		return;
 
@@ -106,8 +114,8 @@ void CloudShadows::ModifySky(const RE::BSShader*, const uint32_t descriptor)
 	auto tech_enum = static_cast<SkyShaderTechniques>(descriptor);
 	if (tech_enum == SkyShaderTechniques::Clouds || tech_enum == SkyShaderTechniques::CloudsLerp || tech_enum == SkyShaderTechniques::CloudsFade) {
 		auto renderer = RE::BSGraphics::Renderer::GetSingleton();
-		auto context = renderer->GetRuntimeData().context;
-		auto device = renderer->GetRuntimeData().forwarder;
+		auto& context = State::GetSingleton()->context;
+		auto& device = State::GetSingleton()->device;
 
 		{
 			ID3D11ShaderResourceView* srv = nullptr;
@@ -136,14 +144,15 @@ void CloudShadows::ModifySky(const RE::BSShader*, const uint32_t descriptor)
 		context->OMSetRenderTargets(4, rtvs, depthStencil);
 
 		// blend states
-		ID3D11BlendState* blendState;
-		FLOAT blendFactor[4];
-		UINT sampleMask;
+
+		ID3D11BlendState* blendState = nullptr;
+		FLOAT blendFactor[4] = { 0 };
+		UINT sampleMask = 0;
 
 		context->OMGetBlendState(&blendState, blendFactor, &sampleMask);
 
 		if (!mappedBlendStates.contains(blendState)) {
-			if (!modifiedBlendStates.contains(blendState)) {
+			if (modifiedBlendStates.contains(blendState)) {
 				D3D11_BLEND_DESC blendDesc;
 				blendState->GetDesc(&blendDesc);
 
@@ -155,64 +164,79 @@ void CloudShadows::ModifySky(const RE::BSShader*, const uint32_t descriptor)
 				mappedBlendStates.insert(modifiedBlendState);
 				modifiedBlendStates.insert({ blendState, modifiedBlendState });
 			}
-			blendState = modifiedBlendStates[blendState];
-			context->OMSetBlendState(blendState, blendFactor, sampleMask);
+			context->OMSetBlendState(modifiedBlendStates[blendState], blendFactor, sampleMask);
+
+			resetBlendState = blendState;
 		}
 	}
 }
 
-void CloudShadows::ModifyLighting()
+void CloudShadows::DrawShadows()
 {
-	auto context = RE::BSGraphics::Renderer::GetSingleton()->GetRuntimeData().context;
+	if (!settings.EnableCloudShadows ||
+		(RE::Sky::GetSingleton()->mode.get() != RE::Sky::Mode::kFull) ||
+		!RE::Sky::GetSingleton()->currentClimate)
+		return;
 
-	auto shadowState = RE::BSGraphics::RendererShadowState::GetSingleton();
-	auto cubeMapRenderTarget = !REL::Module::IsVR() ? shadowState->GetRuntimeData().cubeMapRenderTarget : shadowState->GetVRRuntimeData().cubeMapRenderTarget;
+	auto& shadowState = State::GetSingleton()->shadowState;
+
+	GET_INSTANCE_MEMBER(cubeMapRenderTarget, shadowState);
+
 	if (cubeMapRenderTarget != RE::RENDER_TARGETS_CUBEMAP::kREFLECTIONS) {
-		static FrameChecker frame_checker;
+		static Util::FrameChecker frame_checker;
+
+		auto renderer = RE::BSGraphics::Renderer::GetSingleton();
+		auto& context = State::GetSingleton()->context;
+		auto deferred = Deferred::GetSingleton();
+
 		if (frame_checker.isNewFrame())
 			context->GenerateMips(texCubemapCloudOcc->srv.get());
 
-		auto srv = texCubemapCloudOcc->srv.get();
-		context->PSSetShaderResources(40, 1, &srv);
-	} else {
-		ID3D11ShaderResourceView* srv = nullptr;
-		context->PSSetShaderResources(40, 1, &srv);
-	}
+		std::array<ID3D11ShaderResourceView*, 3> srvs = { nullptr };
+		std::array<ID3D11UnorderedAccessView*, 1> uavs = { nullptr };
 
-	ID3D11ShaderResourceView* views[1]{};
-	views[0] = perPass->srv.get();
-	context->PSSetShaderResources(23, ARRAYSIZE(views), views);
+		srvs.at(0) = perPass->SRV();
+		srvs.at(1) = texCubemapCloudOcc->srv.get();
+		srvs.at(2) = renderer->GetDepthStencilData().depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kPOST_ZPREPASS_COPY].depthSRV;
+
+		uavs.at(0) = renderer->GetRuntimeData().renderTargets[RE::RENDER_TARGET::kSHADOW_MASK].UAV;
+
+		context->CSSetShaderResources(0, (uint)srvs.size(), srvs.data());
+		context->CSSetUnorderedAccessViews(0, (uint)uavs.size(), uavs.data(), nullptr);
+		context->CSSetShader(outputProgram, nullptr, 0);
+		context->Dispatch((deferred->giTexture->desc.Width + 31u) >> 5, (deferred->giTexture->desc.Height + 31u) >> 5, 1);
+
+		// clean up
+		srvs.fill(nullptr);
+		uavs.fill(nullptr);
+
+		context->CSSetShaderResources(0, (uint)srvs.size(), srvs.data());
+		context->CSSetUnorderedAccessViews(0, (uint)uavs.size(), uavs.data(), nullptr);
+	}
 }
 
 void CloudShadows::Draw(const RE::BSShader* shader, const uint32_t descriptor)
 {
-	static FrameChecker frame_checker;
+	if (!settings.EnableCloudShadows ||
+		(RE::Sky::GetSingleton()->mode.get() != RE::Sky::Mode::kFull) ||
+		!RE::Sky::GetSingleton()->currentClimate)
+		return;
+
+	static Util::FrameChecker frame_checker;
 	if (frame_checker.isNewFrame()) {
 		// update settings buffer
-		auto context = RE::BSGraphics::Renderer::GetSingleton()->GetRuntimeData().context;
-
 		PerPass perPassData{};
 
 		perPassData.Settings = settings;
 		perPassData.Settings.TransparencyPower = exp2(perPassData.Settings.TransparencyPower);
 		perPassData.RcpHPlusR = 1.f / (settings.CloudHeight + settings.PlanetRadius);
 
-		D3D11_MAPPED_SUBRESOURCE mapped;
-		DX::ThrowIfFailed(context->Map(perPass->resource.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped));
-		size_t bytes = sizeof(PerPass);
-		memcpy_s(mapped.pData, bytes, &perPassData, bytes);
-		context->Unmap(perPass->resource.get(), 0);
+		perPass->Update(&perPassData, sizeof(perPassData));
 	}
 
 	switch (shader->shaderType.get()) {
 	case RE::BSShader::Type::Sky:
 		ModifySky(shader, descriptor);
-		break;
-	case RE::BSShader::Type::Lighting:
-	case RE::BSShader::Type::DistantTree:
-	case RE::BSShader::Type::Grass:
-		// case RE::BSShader::Type::Water:
-		ModifyLighting();
 		break;
 	default:
 		break;
@@ -235,7 +259,7 @@ void CloudShadows::Save(json& o_json)
 void CloudShadows::SetupResources()
 {
 	auto renderer = RE::BSGraphics::Renderer::GetSingleton();
-	auto device = renderer->GetRuntimeData().forwarder;
+	auto& device = State::GetSingleton()->device;
 
 	{
 		auto reflections = renderer->GetRendererData().cubemapRenderTargets[RE::RENDER_TARGET_CUBEMAP::kREFLECTIONS];
@@ -262,25 +286,33 @@ void CloudShadows::SetupResources()
 	}
 
 	{
-		D3D11_BUFFER_DESC sbDesc{};
-		sbDesc.Usage = D3D11_USAGE_DYNAMIC;
-		sbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-		sbDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-		sbDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
-		sbDesc.StructureByteStride = sizeof(PerPass);
-		sbDesc.ByteWidth = sizeof(PerPass);
-		perPass = std::make_unique<Buffer>(sbDesc);
-
-		D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc;
-		srvDesc.Format = DXGI_FORMAT_UNKNOWN;
-		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
-		srvDesc.Buffer.FirstElement = 0;
-		srvDesc.Buffer.NumElements = 1;
-		perPass->CreateSRV(srvDesc);
+		perPass = std::make_unique<StructuredBuffer>(StructuredBufferDesc<PerPass>(), 1);
+		perPass->CreateSRV();
 	}
+
+	CompileComputeShaders();
 }
 
 void CloudShadows::RestoreDefaultSettings()
 {
 	settings = {};
+}
+
+void CloudShadows::Hooks::BSBatchRenderer__RenderPassImmediately::thunk(RE::BSRenderPass* Pass, uint32_t Technique, bool AlphaTest, uint32_t RenderFlags)
+{
+	auto feat = GetSingleton();
+	auto& context = State::GetSingleton()->context;
+
+	func(Pass, Technique, AlphaTest, RenderFlags);
+
+	if (feat->resetBlendState) {
+		ID3D11BlendState* blendState = nullptr;
+		FLOAT blendFactor[4] = { 0 };
+		UINT sampleMask = 0;
+
+		context->OMGetBlendState(&blendState, blendFactor, &sampleMask);
+		context->OMSetBlendState(feat->resetBlendState, blendFactor, sampleMask);
+
+		feat->resetBlendState = nullptr;
+	}
 }

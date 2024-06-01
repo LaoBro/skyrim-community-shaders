@@ -48,6 +48,7 @@ void Atmosphere::DrawSettings() {
     ImGui::InputFloat("Z Scale", &settings.ZScale);
     ImGui::InputFloat("Total Brightness", &settings.TotalBrightness);
     ImGui::InputFloat("Moon Brightness", &settings.MoonBrightness);
+    ImGui::ColorEdit3("Ground Albedo", settings.GroundAlbedo, ImGuiColorEditFlags_Float);
 
     if (ImGui::TreeNodeEx("Sun Phase")) {
         ImGui::SliderAngle("Latitude", &settings.Latitude, -90, 90);
@@ -93,14 +94,16 @@ void Atmosphere::SetupResources() {
         logger::info("{}", setting->GetName());
     }*/
     SetGamePrefSettingBool("bVolumetricLightingEnable", "Display", 0);
+    SetGamePrefSettingBool("bEnableImprovedSnow", "Display", 0);
 
     TransmittanceLutCS = GetAtmosphereCS(L"Data\\Shaders\\TransmittanceLutCS.hlsl");
     MultiScatteringLutCS = GetAtmosphereCS(L"Data\\Shaders\\MultiScatteringLutCS.hlsl");
     SkyViewLutCS = GetAtmosphereCS(L"Data\\Shaders\\SkyViewLutCS.hlsl");
     AerialPerspectiveLutCS = GetAtmosphereCS(L"Data\\Shaders\\AerialPerspectiveLutCS.hlsl");
 
-    auto renderer = RE::BSGraphics::Renderer::GetSingleton();
-    auto device = renderer->GetRuntimeData().forwarder;
+    //auto renderer = RE::BSGraphics::Renderer::GetSingleton();
+    //auto device = renderer->GetRuntimeData().forwarder;
+    auto& device = State::GetSingleton()->device;
 
     DX::ThrowIfFailed(device->CreateSamplerState(&ComputeSamplerDesc, &ComputeSampler));
 
@@ -108,6 +111,7 @@ void Atmosphere::SetupResources() {
     texDesc.Width = 256;
     texDesc.Height = 64;
     texDesc.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
+
     device->CreateTexture2D(&texDesc, NULL, &TransmittanceLutTexture);
 
     texDesc.Width = 32;
@@ -199,4 +203,9 @@ void Atmosphere::Load(json& o_json)
 void Atmosphere::Save(json& o_json)
 {
 	o_json[GetName()] = settings;
+}
+
+bool Atmosphere::HasShaderDefine(RE::BSShader::Type)
+{
+	return false;
 }

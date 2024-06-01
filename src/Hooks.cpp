@@ -2,9 +2,11 @@
 
 #include <detours/Detours.h>
 
+#include "Deferred.h"
 #include "Menu.h"
 #include "ShaderCache.h"
 #include "State.h"
+#include "VariableRateShading.h"
 
 #include "ShaderTools/BSShaderHooks.h"
 
@@ -111,17 +113,19 @@ void hk_BSShader_LoadShaders(RE::BSShader* shader, std::uintptr_t stream)
 	BSShaderHooks::hk_LoadShaders((REX::BSShader*)shader, stream);
 };
 
-bool hk_BSShader_BeginTechnique(RE::BSShader* shader, int vertexDescriptor, int pixelDescriptor, bool skipPIxelShader);
+bool hk_BSShader_BeginTechnique(RE::BSShader* shader, uint32_t vertexDescriptor, uint32_t pixelDescriptor, bool skipPixelShader);
 
 decltype(&hk_BSShader_BeginTechnique) ptr_BSShader_BeginTechnique;
 
-bool hk_BSShader_BeginTechnique(RE::BSShader* shader, int vertexDescriptor, int pixelDescriptor, bool skipPIxelShader)
+bool hk_BSShader_BeginTechnique(RE::BSShader* shader, uint32_t vertexDescriptor, uint32_t pixelDescriptor, bool skipPixelShader)
 {
 	auto state = State::GetSingleton();
 	state->currentShader = shader;
 	state->currentVertexDescriptor = vertexDescriptor;
 	state->currentPixelDescriptor = pixelDescriptor;
-	return (ptr_BSShader_BeginTechnique)(shader, vertexDescriptor, pixelDescriptor, skipPIxelShader);
+	state->updateShader = true;
+
+	return (ptr_BSShader_BeginTechnique)(shader, vertexDescriptor, pixelDescriptor, skipPixelShader);
 }
 
 decltype(&IDXGISwapChain::Present) ptr_IDXGISwapChain_Present;
@@ -187,7 +191,7 @@ HRESULT WINAPI hk_D3D11CreateDeviceAndSwapChain(
 	const D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_1;  // Create a device with only the latest feature level
 
 #ifndef NDEBUG
-	// Flags |= D3D11_CREATE_DEVICE_DEBUG;
+	Flags |= D3D11_CREATE_DEVICE_DEBUG;
 #endif
 
 	HRESULT hr = (*ptrD3D11CreateDeviceAndSwapChain)(
@@ -213,6 +217,7 @@ decltype(&hk_BSShaderRenderTargets_Create) ptr_BSShaderRenderTargets_Create;
 
 void hk_BSShaderRenderTargets_Create()
 {
+	logger::info("bUse64bitsHDRRenderTarget is {}", RE::GetINISetting("bUse64bitsHDRRenderTarget:Display")->data.b ? "enabled" : "disabled");
 	(ptr_BSShaderRenderTargets_Create)();
 	State::GetSingleton()->Setup();
 }
@@ -265,9 +270,9 @@ namespace Hooks
 
 			auto manager = RE::BSGraphics::Renderer::GetSingleton();
 
-			auto context = manager->GetRuntimeData().context;
-			auto swapchain = manager->GetRuntimeData().renderWindows->swapChain;
-			auto device = manager->GetRuntimeData().forwarder;
+			auto context = reinterpret_cast<ID3D11DeviceContext*>(manager->GetRuntimeData().context);
+			auto swapchain = reinterpret_cast<IDXGISwapChain*>(manager->GetRuntimeData().renderWindows->swapChain);
+			auto device = reinterpret_cast<ID3D11Device*>(manager->GetRuntimeData().forwarder);
 
 			logger::info("Detouring virtual function tables");
 
@@ -313,6 +318,26 @@ namespace Hooks
 		static inline REL::Relocation<decltype(thunk)> func;
 	};
 
+	struct BSImagespaceShaderHDRTonemapBlendCinematic_SetupTechnique
+	{
+		static void thunk(RE::BSShader* a_shader, RE::BSShaderMaterial* a_material)
+		{
+			State::GetSingleton()->DrawPreProcess();
+			func(a_shader, a_material);
+		}
+		static inline REL::Relocation<decltype(thunk)> func;
+	};
+
+	struct BSImagespaceShaderHDRTonemapBlendCinematicFade_SetupTechnique
+	{
+		static void thunk(RE::BSShader* a_shader, RE::BSShaderMaterial* a_material)
+		{
+			State::GetSingleton()->DrawPreProcess();
+			func(a_shader, a_material);
+		}
+		static inline REL::Relocation<decltype(thunk)> func;
+	};
+
 	struct WndProcHandler_Hook
 	{
 		static LRESULT thunk(HWND a_hwnd, UINT a_msg, WPARAM a_wParam, LPARAM a_lParam)
@@ -340,6 +365,46 @@ namespace Hooks
 		static inline REL::Relocation<decltype(thunk)> func;
 	};
 
+	struct CreateRenderTarget_Main
+	{
+		static void thunk(RE::BSGraphics::Renderer* This, RE::RENDER_TARGETS::RENDER_TARGET a_target, RE::BSGraphics::RenderTargetProperties* a_properties)
+		{
+			State::GetSingleton()->ModifyRenderTarget(a_target, a_properties);
+			func(This, a_target, a_properties);
+		}
+		static inline REL::Relocation<decltype(thunk)> func;
+	};
+
+	struct CreateRenderTarget_Normals
+	{
+		static void thunk(RE::BSGraphics::Renderer* This, RE::RENDER_TARGETS::RENDER_TARGET a_target, RE::BSGraphics::RenderTargetProperties* a_properties)
+		{
+			State::GetSingleton()->ModifyRenderTarget(a_target, a_properties);
+			func(This, a_target, a_properties);
+		}
+		static inline REL::Relocation<decltype(thunk)> func;
+	};
+
+	struct CreateRenderTarget_NormalsSwap
+	{
+		static void thunk(RE::BSGraphics::Renderer* This, RE::RENDER_TARGETS::RENDER_TARGET a_target, RE::BSGraphics::RenderTargetProperties* a_properties)
+		{
+			State::GetSingleton()->ModifyRenderTarget(a_target, a_properties);
+			func(This, a_target, a_properties);
+		}
+		static inline REL::Relocation<decltype(thunk)> func;
+	};
+
+	struct CreateRenderTarget_ShadowMask
+	{
+		static void thunk(RE::BSGraphics::Renderer* This, RE::RENDER_TARGETS::RENDER_TARGET a_target, RE::BSGraphics::RenderTargetProperties* a_properties)
+		{
+			State::GetSingleton()->ModifyRenderTarget(a_target, a_properties);
+			func(This, a_target, a_properties);
+		}
+		static inline REL::Relocation<decltype(thunk)> func;
+	};
+
 	void Install()
 	{
 		SKSE::AllocTrampoline(14);
@@ -353,6 +418,7 @@ namespace Hooks
 		*(uintptr_t*)&ptr_BSShader_BeginTechnique = Detours::X64::DetourFunction(REL::RelocationID(101341, 108328).address(), (uintptr_t)&hk_BSShader_BeginTechnique);
 		logger::info("Hooking BSGraphics::SetDirtyStates");
 		*(uintptr_t*)&ptr_BSGraphics_SetDirtyStates = Detours::X64::DetourFunction(REL::RelocationID(75580, 77386).address(), (uintptr_t)&hk_BSGraphics_SetDirtyStates);
+
 		logger::info("Hooking BSGraphics::Renderer::InitD3D");
 		stl::write_thunk_call<BSGraphics_Renderer_Init_InitD3D>(REL::RelocationID(75595, 77226).address() + REL::Relocate(0x50, 0x2BC));
 
@@ -360,6 +426,10 @@ namespace Hooks
 		stl::write_vfunc<0x2, BSImagespaceShaderISSAOCompositeSAO_SetupTechnique>(RE::VTABLE_BSImagespaceShaderISSAOCompositeSAO[0]);
 		stl::write_vfunc<0x2, BSImagespaceShaderISSAOCompositeFog_SetupTechnique>(RE::VTABLE_BSImagespaceShaderISSAOCompositeFog[0]);
 		stl::write_vfunc<0x2, BSImagespaceShaderISSAOCompositeSAOFog_SetupTechnique>(RE::VTABLE_BSImagespaceShaderISSAOCompositeSAOFog[0]);
+
+		logger::info("Hooking preprocess passes");
+		stl::write_vfunc<0x2, BSImagespaceShaderHDRTonemapBlendCinematic_SetupTechnique>(RE::VTABLE_BSImagespaceShaderHDRTonemapBlendCinematic[0]);
+		stl::write_vfunc<0x2, BSImagespaceShaderHDRTonemapBlendCinematicFade_SetupTechnique>(RE::VTABLE_BSImagespaceShaderHDRTonemapBlendCinematicFade[0]);
 
 		logger::info("Hooking WndProcHandler");
 		stl::write_thunk_call_6<RegisterClassA_Hook>(REL::VariantID(75591, 77226, 0xDC4B90).address() + REL::VariantOffset(0x8E, 0x15C, 0x99).offset());
@@ -370,5 +440,11 @@ namespace Hooks
 
 		logger::info("Hooking BSShaderRenderTargets::Create");
 		*(uintptr_t*)&ptr_BSShaderRenderTargets_Create = Detours::X64::DetourFunction(REL::RelocationID(100458, 107175).address(), (uintptr_t)&hk_BSShaderRenderTargets_Create);
+
+		logger::info("Hooking BSShaderRenderTargets::Create::CreateRenderTarget(s)");
+		stl::write_thunk_call<CreateRenderTarget_Main>(REL::RelocationID(100458, 107175).address() + REL::Relocate(0x3F0, 0x3F3, 0x548));
+		stl::write_thunk_call<CreateRenderTarget_Normals>(REL::RelocationID(100458, 107175).address() + REL::Relocate(0x458, 0x45B, 0x5B0));
+		stl::write_thunk_call<CreateRenderTarget_NormalsSwap>(REL::RelocationID(100458, 107175).address() + REL::Relocate(0x46B, 0x46E, 0x5C3));
+		stl::write_thunk_call<CreateRenderTarget_ShadowMask>(REL::RelocationID(100458, 107175).address() + REL::Relocate(0x555, 0x554, 0x6b9));
 	}
 }

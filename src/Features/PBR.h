@@ -5,7 +5,6 @@
 
 struct PBR : Feature
 {
-
 	static PBR* GetSingleton()
 	{
 		static PBR singleton;
@@ -19,6 +18,9 @@ struct PBR : Feature
 
 	virtual inline std::string GetName() { return "PBR"; }
 	virtual inline std::string GetShortName() { return "PBR"; }
+	inline std::string_view GetShaderDefineName() override { return "PBR"; }
+
+	bool HasShaderDefine(RE::BSShader::Type shaderType) override;
 
 	struct alignas(16) Settings
 	{	
@@ -80,6 +82,8 @@ struct PBR : Feature
 	virtual void Save(json& o_json);
 
 	virtual void RestoreDefaultSettings();
+
+	bool SupportsVR() override { return false; };
 
 	void BSLightingShader_SetupGeometry_Before(RE::BSRenderPass* Pass);
 	void BSLightingShader_SetupGeometry_After(RE::BSRenderPass* Pass);

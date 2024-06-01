@@ -11,6 +11,10 @@
 #include "Feature.h"
 #include "Features/LightLimitFix/ParticleLights.h"
 
+#include "Deferred.h"
+
+#include "VariableRateShading.h"
+
 #define SETTING_MENU_TOGGLEKEY "Toggle Key"
 #define SETTING_MENU_SKIPKEY "Skip Compilation Key"
 #define SETTING_MENU_FONTSCALE "Font Scale"
@@ -158,6 +162,8 @@ void Menu::DrawSettings()
 			ImGui::TableNextColumn();
 			if (ImGui::Button("Clear Shader Cache", { -1, 0 })) {
 				shaderCache.Clear();
+				Deferred::GetSingleton()->ClearShaderCache();
+				VariableRateShading::GetSingleton()->ClearShaderCache();
 				for (auto* feature : Feature::GetFeatureList()) {
 					if (feature->loaded) {
 						feature->ClearShaderCache();
@@ -345,10 +351,10 @@ void Menu::DrawSettings()
 				if (testInterval == 0) {
 					inTestMode = false;
 					logger::info("Disabling test mode.");
-					State::GetSingleton()->Load(true);  // restore last settings before entering test mode
+					State::GetSingleton()->Load(State::ConfigMode::TEST);  // restore last settings before entering test mode
 				} else if (testInterval && !inTestMode) {
 					logger::info("Saving current settings for test mode and starting test with interval {}.", testInterval);
-					State::GetSingleton()->Save(true);
+					State::GetSingleton()->Save(State::ConfigMode::TEST);
 					inTestMode = true;
 				} else {
 					logger::info("Setting new interval {}.", testInterval);
@@ -361,6 +367,17 @@ void Menu::DrawSettings()
 					"Enabling will save current settings as TEST config. "
 					"This has no impact if no settings are changed. ");
 			}
+			bool useFileWatcher = shaderCache.UseFileWatcher();
+			ImGui::TableNextColumn();
+			if (ImGui::Checkbox("Enable File Watcher", &useFileWatcher)) {
+				shaderCache.SetFileWatcher(useFileWatcher);
+			}
+			if (auto _tt = Util::HoverTooltipWrapper()) {
+				ImGui::Text(
+					"Automatically recompile shaders on file change. "
+					"Intended for developing.");
+			}
+
 			if (ImGui::Button("Dump Ini Settings", { -1, 0 })) {
 				Util::DumpSettingsOptions();
 			}
@@ -377,10 +394,20 @@ void Menu::DrawSettings()
 						"Specific shader will be printed to logfile. ");
 				}
 			}
+			if (ImGui::TreeNodeEx("Addresses")) {
+				auto Renderer = RE::BSGraphics::Renderer::GetSingleton();
+				auto BSShaderAccumulator = RE::BSGraphics::BSShaderAccumulator::GetCurrentAccumulator();
+				auto RendererShadowState = RE::BSGraphics::RendererShadowState::GetSingleton();
+				ADDRESS_NODE(Renderer)
+				ADDRESS_NODE(BSShaderAccumulator)
+				ADDRESS_NODE(RendererShadowState)
+				ImGui::TreePop();
+			}
 			if (ImGui::TreeNodeEx("Statistics", ImGuiTreeNodeFlags_DefaultOpen)) {
 				ImGui::Text(std::format("Shader Compiler : {}", shaderCache.GetShaderStatsString()).c_str());
 				ImGui::TreePop();
 			}
+			ImGui::Checkbox("Extended Frame Annotations", &State::GetSingleton()->extendedFrameAnnotations);
 		}
 
 		if (ImGui::CollapsingHeader("Replace Original Shaders", ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick)) {
@@ -397,12 +424,29 @@ void Menu::DrawSettings()
 					} else
 						ImGui::Checkbox(std::format("{}", magic_enum::enum_name(type)).c_str(), &state->enabledClasses[classIndex]);
 				}
-
+				if (state->IsDeveloperMode()) {
+					ImGui::Checkbox("Vertex", &state->enableVShaders);
+					if (auto _tt = Util::HoverTooltipWrapper()) {
+						ImGui::Text(
+							"Replace Vertex Shaders. "
+							"When false, will disable the custom Vertex Shaders for the types above. "
+							"For developers to test whether CS shaders match vanilla behavior. ");
+					}
+					ImGui::Checkbox("Pixel", &state->enablePShaders);
+					if (auto _tt = Util::HoverTooltipWrapper()) {
+						ImGui::Text(
+							"Replace Pixel Shaders. "
+							"When false, will disable the custom Pixel Shaders for the types above. "
+							"For developers to test whether CS shaders match vanilla behavior. ");
+					}
+				}
 				ImGui::EndTable();
 			}
 		}
 
 		ImGui::Separator();
+
+		VariableRateShading::GetSingleton()->DrawSettings();
 
 		if (ImGui::BeginTable("Feature Table", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable)) {
 			ImGui::TableSetupColumn("##ListOfFeatures", 0, 3);
@@ -410,25 +454,36 @@ void Menu::DrawSettings()
 
 			static size_t selectedFeature = SIZE_T_MAX;
 			auto& featureList = Feature::GetFeatureList();
+			auto sortedList{ featureList };  // need a copy so the load order is not lost
+			std::sort(sortedList.begin(), sortedList.end(), [](Feature* a, Feature* b) {
+				return a->GetName() < b->GetName();
+			});
 
 			ImGui::TableNextColumn();
 			if (ImGui::BeginListBox("##FeatureList", { -FLT_MIN, -FLT_MIN })) {
-				for (size_t i = 0; i < featureList.size(); i++)
-					if (featureList[i]->loaded) {
-						if (ImGui::Selectable(fmt::format("{} ", featureList[i]->GetName()).c_str(), selectedFeature == i, ImGuiSelectableFlags_SpanAllColumns))
+				ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.15f, 0.15f, 0.15f, 1.0f));  // Selected feature header color
+				for (size_t i = 0; i < sortedList.size(); i++)
+					if (sortedList[i]->loaded) {
+						if (ImGui::Selectable(fmt::format(" {} ", sortedList[i]->GetName()).c_str(), selectedFeature == i, ImGuiSelectableFlags_SpanAllColumns))
 							selectedFeature = i;
 						ImGui::SameLine();
-						ImGui::TextDisabled(fmt::format("({})", featureList[i]->version).c_str());
+						ImGui::TextDisabled(fmt::format("({})", sortedList[i]->version).c_str());
+					} else if (!sortedList[i]->version.empty()) {
+						ImGui::TextDisabled(fmt::format(" {} ({})", sortedList[i]->GetName(), sortedList[i]->version).c_str());
+						if (auto _tt = Util::HoverTooltipWrapper()) {
+							ImGui::Text(sortedList[i]->failedLoadedMessage.c_str());
+						}
 					}
+				ImGui::PopStyleColor();
 				ImGui::EndListBox();
 			}
 
 			ImGui::TableNextColumn();
 
-			bool shownFeature = selectedFeature < featureList.size();
+			bool shownFeature = selectedFeature < sortedList.size();
 			if (shownFeature) {
 				if (ImGui::Button("Restore Defaults", { -1, 0 })) {
-					featureList[selectedFeature]->RestoreDefaultSettings();
+					sortedList[selectedFeature]->RestoreDefaultSettings();
 				}
 				if (auto _tt = Util::HoverTooltipWrapper()) {
 					ImGui::Text(
@@ -439,7 +494,7 @@ void Menu::DrawSettings()
 
 			if (ImGui::BeginChild("##FeatureConfigFrame", { 0, 0 }, true)) {
 				if (shownFeature)
-					featureList[selectedFeature]->DrawSettings();
+					sortedList[selectedFeature]->DrawSettings();
 				else
 					ImGui::TextDisabled("Please select a feature on the left.");
 			}
@@ -533,7 +588,7 @@ void Menu::DrawOverlay()
 		if (remaining < 0) {
 			usingTestConfig = !usingTestConfig;
 			logger::info("Swapping mode to {}", usingTestConfig ? "test" : "user");
-			State::GetSingleton()->Load(usingTestConfig);
+			State::GetSingleton()->Load(usingTestConfig ? State::ConfigMode::TEST : State::ConfigMode::USER);
 			lastTestSwitch = high_resolution_clock::now();
 		}
 		ImGui::SetNextWindowBgAlpha(1);

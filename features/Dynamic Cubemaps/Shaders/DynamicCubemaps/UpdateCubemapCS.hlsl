@@ -1,10 +1,13 @@
-#include "../Common/VR.hlsl"
+#include "../Common/Constants.hlsli"
+#include "../Common/VR.hlsli"
 RWTexture2DArray<float4> DynamicCubemap : register(u0);
 RWTexture2DArray<float4> DynamicCubemapRaw : register(u1);
 RWTexture2DArray<float4> DynamicCubemapPosition : register(u2);
 
 Texture2D<float> DepthTexture : register(t0);
 Texture2D<float4> ColorTexture : register(t1);
+
+SamplerState LinearSampler : register(s0);
 
 // Calculate normalized sampling direction vector based on current fragment coordinates.
 // This is essentially "inverse-sampling": we reconstruct what the sampling vector would be if we wanted it to "hit"
@@ -143,6 +146,12 @@ float3 InverseProjectUVZ(float2 uv, float z)
 	return float3(vp.xy, vp.z) / vp.w;
 }
 
+float smoothbumpstep(float edge0, float edge1, float x)
+{
+	x = 1.0 - abs(saturate((x - edge0) / (edge1 - edge0)) - 0.5) * 2.0;
+	return x * x * (3.0 - x - x);
+}
+
 [numthreads(32, 32, 1)] void main(uint3 ThreadID
 								  : SV_DispatchThreadID) {
 	float3 captureDirection = -GetSamplingVector(ThreadID, DynamicCubemap);
@@ -160,22 +169,31 @@ float3 InverseProjectUVZ(float2 uv, float z)
 		uv = GetDynamicResolutionAdjustedScreenPosition(uv);
 		uv = ConvertToStereoUV(uv, 0);
 
-		float2 textureDims;
-		DepthTexture.GetDimensions(textureDims.x, textureDims.y);
-
-		float depth = DepthTexture[round(uv * textureDims)];
+		float depth = DepthTexture.SampleLevel(LinearSampler, uv, 0);
 		float linearDepth = GetScreenDepth(depth);
 
-		if (linearDepth > 16.5) {  // First person
-			float3 color = ColorTexture[round(uv * textureDims)];
+		if (linearDepth > 16.5) {  // Ignore objects which are too close
+			float3 color = ColorTexture.SampleLevel(LinearSampler, uv, 0);
 			float4 output = float4(sRGB2Lin(color), 1.0);
 			float lerpFactor = 0.5;
 
-			DynamicCubemapRaw[ThreadID] = lerp(DynamicCubemapRaw[ThreadID], output, lerpFactor);
-			DynamicCubemap[ThreadID] = lerp(DynamicCubemap[ThreadID], output, lerpFactor);
+			float4 position = float4(InverseProjectUVZ(uv, depth) * 0.001, 1.0);
 
-			float3 position = InverseProjectUVZ(uv, depth);
-			DynamicCubemapPosition[ThreadID] = lerp(DynamicCubemapPosition[ThreadID], float4(position * 0.001, 1.0), lerpFactor);
+			float distance = length(position.xyz);
+
+			position.w = smoothstep(1.0, 4096.0 * 0.001, distance);  // Objects which are far away from the perspective of the camera do not fade out
+
+			if (linearDepth > (4096.0 * 5.0))
+				position.w = 0;
+
+			DynamicCubemapPosition[ThreadID] = lerp(DynamicCubemapPosition[ThreadID], position, lerpFactor);
+
+			DynamicCubemapRaw[ThreadID] = max(0, lerp(DynamicCubemapRaw[ThreadID], output, lerpFactor));
+
+			output *= sqrt(saturate(0.5 * length(position.xyz)));
+
+			DynamicCubemap[ThreadID] = max(0, lerp(DynamicCubemap[ThreadID], output, lerpFactor));
+
 			return;
 		}
 	}
@@ -185,7 +203,9 @@ float3 InverseProjectUVZ(float2 uv, float z)
 	DynamicCubemapPosition[ThreadID] = position;
 
 	float4 color = DynamicCubemapRaw[ThreadID];
-	color *= lerp(1.0, 0.0, saturate(length(position.xyz)));
 
-	DynamicCubemap[ThreadID] = color;
+	float distanceFactor = sqrt(smoothbumpstep(0.0, 1.0, length(position.xyz)));
+	color *= max(0.001, max(distanceFactor, position.w));
+
+	DynamicCubemap[ThreadID] = max(0, color);
 }

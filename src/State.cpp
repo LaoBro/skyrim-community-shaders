@@ -9,57 +9,77 @@
 #include "Feature.h"
 #include "Util.h"
 
+#include "Deferred.h"
+#include "Features/TerrainBlending.h"
+
+#include "VariableRateShading.h"
+
 void State::Draw()
 {
-	auto& shaderCache = SIE::ShaderCache::Instance();
-	if (shaderCache.IsEnabled() && currentShader) {
+	Deferred::GetSingleton()->UpdatePerms();
+	if (currentShader && updateShader) {
 		auto type = currentShader->shaderType.get();
-		if (type > 0 && type < RE::BSShader::Type::Total) {
-			if (enabledClasses[type - 1]) {
-				ModifyShaderLookup(*currentShader, currentVertexDescriptor, currentPixelDescriptor);
-				UpdateSharedData(currentShader, currentPixelDescriptor);
+		VariableRateShading::GetSingleton()->UpdateViews(type != RE::BSShader::Type::ImageSpace && type != RE::BSShader::Type::Sky && type != RE::BSShader::Type::Water);
+		auto& shaderCache = SIE::ShaderCache::Instance();
+		if (shaderCache.IsEnabled()) {
+			if (type > 0 && type < RE::BSShader::Type::Total) {
+				if (enabledClasses[type - 1]) {
+					ModifyShaderLookup(*currentShader, currentVertexDescriptor, currentPixelDescriptor);
+					UpdateSharedData(currentShader, currentPixelDescriptor);
 
-				auto context = RE::BSGraphics::Renderer::GetSingleton()->GetRuntimeData().context;
+					static RE::BSGraphics::VertexShader* vertexShader = nullptr;
+					static RE::BSGraphics::PixelShader* pixelShader = nullptr;
 
-				if (auto vertexShader = shaderCache.GetVertexShader(*currentShader, currentVertexDescriptor)) {
-					if (auto pixelShader = shaderCache.GetPixelShader(*currentShader, currentPixelDescriptor)) {
-						context->VSSetShader(vertexShader->shader, NULL, NULL);
-						context->PSSetShader(pixelShader->shader, NULL, NULL);
+					vertexShader = shaderCache.GetVertexShader(*currentShader, currentVertexDescriptor);
+					pixelShader = shaderCache.GetPixelShader(*currentShader, currentPixelDescriptor);
 
+					if (vertexShader && pixelShader) {
+						context->VSSetShader(reinterpret_cast<ID3D11VertexShader*>(vertexShader->shader), NULL, NULL);
+						context->PSSetShader(reinterpret_cast<ID3D11PixelShader*>(pixelShader->shader), NULL, NULL);
+					}
+
+					BeginPerfEvent(std::format("Draw: CS {}::{:x}", magic_enum::enum_name(currentShader->shaderType.get()), currentPixelDescriptor));
+					if (IsDeveloperMode()) {
+						SetPerfMarker(std::format("Defines: {}", SIE::ShaderCache::GetDefinesString(currentShader->shaderType.get(), currentPixelDescriptor)));
+					}
+
+					if (vertexShader && pixelShader) {
 						for (auto* feature : Feature::GetFeatureList()) {
 							if (feature->loaded) {
+								auto hasShaderDefine = feature->HasShaderDefine(currentShader->shaderType.get());
+								if (hasShaderDefine)
+									BeginPerfEvent(feature->GetShortName());
 								feature->Draw(currentShader, currentPixelDescriptor);
+								if (hasShaderDefine)
+									EndPerfEvent();
 							}
 						}
 					}
 				}
+				EndPerfEvent();
 			}
 		}
 	}
-
-	currentShader = nullptr;
+	updateShader = false;
 }
 
 void State::DrawDeferred()
 {
-	auto renderer = RE::BSGraphics::Renderer::GetSingleton();
-	auto context = renderer->GetRuntimeData().context;
+	ID3D11ShaderResourceView* srvs[8];
+	context->PSGetShaderResources(0, 8, srvs);
 
-	ID3D11ShaderResourceView* srvs[16];
-	context->PSGetShaderResources(0, 16, srvs);
+	ID3D11ShaderResourceView* srvsCS[8];
+	context->CSGetShaderResources(0, 8, srvsCS);
 
-	ID3D11ShaderResourceView* srvsCS[16];
-	context->CSGetShaderResources(0, 16, srvsCS);
+	ID3D11UnorderedAccessView* uavsCS[8];
+	context->CSGetUnorderedAccessViews(0, 8, uavsCS);
 
-	ID3D11UnorderedAccessView* uavsCS[16];
-	context->CSGetUnorderedAccessViews(0, 16, uavsCS);
+	ID3D11UnorderedAccessView* nullUavs[8] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
+	context->CSSetUnorderedAccessViews(0, 8, nullUavs, nullptr);
 
-	ID3D11UnorderedAccessView* nullUavs[16] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
-	context->CSSetUnorderedAccessViews(0, 16, nullUavs, nullptr);
-
-	ID3D11ShaderResourceView* nullSrvs[16] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
-	context->PSSetShaderResources(0, 16, nullSrvs);
-	context->CSSetShaderResources(0, 16, nullSrvs);
+	ID3D11ShaderResourceView* nullSrvs[8] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
+	context->PSSetShaderResources(0, 8, nullSrvs);
+	context->CSSetShaderResources(0, 8, nullSrvs);
 
 	ID3D11RenderTargetView* views[8];
 	ID3D11DepthStencilView* dsv;
@@ -75,12 +95,65 @@ void State::DrawDeferred()
 		}
 	}
 
-	context->PSSetShaderResources(0, 16, srvs);
-	context->CSSetShaderResources(0, 16, srvsCS);
-	context->CSSetUnorderedAccessViews(0, 16, uavsCS, nullptr);
+	context->PSSetShaderResources(0, 8, srvs);
+	context->CSSetShaderResources(0, 8, srvsCS);
+	context->CSSetUnorderedAccessViews(0, 8, uavsCS, nullptr);
 	context->OMSetRenderTargets(8, views, dsv);
 
-	for (int i = 0; i < 16; i++) {
+	for (int i = 0; i < 8; i++) {
+		if (srvs[i])
+			srvs[i]->Release();
+		if (srvsCS[i])
+			srvsCS[i]->Release();
+	}
+
+	for (int i = 0; i < 8; i++) {
+		if (views[i])
+			views[i]->Release();
+	}
+
+	if (dsv)
+		dsv->Release();
+}
+
+void State::DrawPreProcess()
+{
+	ID3D11ShaderResourceView* srvs[8];
+	context->PSGetShaderResources(0, 8, srvs);
+
+	ID3D11ShaderResourceView* srvsCS[8];
+	context->CSGetShaderResources(0, 8, srvsCS);
+
+	ID3D11UnorderedAccessView* uavsCS[8];
+	context->CSGetUnorderedAccessViews(0, 8, uavsCS);
+
+	ID3D11UnorderedAccessView* nullUavs[8] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
+	context->CSSetUnorderedAccessViews(0, 8, nullUavs, nullptr);
+
+	ID3D11ShaderResourceView* nullSrvs[8] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
+	context->PSSetShaderResources(0, 8, nullSrvs);
+	context->CSSetShaderResources(0, 8, nullSrvs);
+
+	ID3D11RenderTargetView* views[8];
+	ID3D11DepthStencilView* dsv;
+	context->OMGetRenderTargets(8, views, &dsv);
+
+	ID3D11RenderTargetView* nullViews[8] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
+	ID3D11DepthStencilView* nullDsv = nullptr;
+	context->OMSetRenderTargets(8, nullViews, nullDsv);
+
+	for (auto* feature : Feature::GetFeatureList()) {
+		if (feature->loaded) {
+			feature->DrawPreProcess();
+		}
+	}
+
+	context->PSSetShaderResources(0, 8, srvs);
+	context->CSSetShaderResources(0, 8, srvsCS);
+	context->CSSetUnorderedAccessViews(0, 8, uavsCS, nullptr);
+	context->OMSetRenderTargets(8, views, dsv);
+
+	for (int i = 0; i < 8; i++) {
 		if (srvs[i])
 			srvs[i]->Release();
 		if (srvsCS[i])
@@ -102,29 +175,58 @@ void State::Reset()
 	for (auto* feature : Feature::GetFeatureList())
 		if (feature->loaded)
 			feature->Reset();
+	Deferred::GetSingleton()->Reset();
+	if (!RE::UI::GetSingleton()->GameIsPaused())
+		timer += RE::GetSecondsSinceLastFrame();
+	VariableRateShading::GetSingleton()->UpdateVRS();
 }
 
 void State::Setup()
 {
+	SetupResources();
 	for (auto* feature : Feature::GetFeatureList())
 		if (feature->loaded)
 			feature->SetupResources();
-	SetupResources();
+	Deferred::GetSingleton()->SetupResources();
+	VariableRateShading::GetSingleton()->Setup();
 }
 
-void State::Load(bool a_test)
+static const std::string& GetConfigPath(State::ConfigMode a_configMode)
 {
+	switch (a_configMode) {
+	case State::ConfigMode::USER:
+		return State::GetSingleton()->userConfigPath;
+	case State::ConfigMode::TEST:
+		return State::GetSingleton()->testConfigPath;
+	case State::ConfigMode::DEFAULT:
+	default:
+		return State::GetSingleton()->defaultConfigPath;
+	}
+}
+
+void State::Load(ConfigMode a_configMode)
+{
+	ConfigMode configMode = a_configMode;
 	auto& shaderCache = SIE::ShaderCache::Instance();
 
-	std::string configPath = a_test ? testConfigPath : userConfigPath;
+	std::string configPath = GetConfigPath(configMode);
 	std::ifstream i(configPath);
 	if (!i.is_open()) {
 		logger::info("Unable to open user config file ({}); trying default ({})", configPath, defaultConfigPath);
-		configPath = defaultConfigPath;
+		configMode = ConfigMode::DEFAULT;
+		configPath = GetConfigPath(configMode);
 		i.open(configPath);
 		if (!i.is_open()) {
-			logger::error("Error opening config file ({})\n", configPath);
-			return;
+			logger::info("No default config ({}), generating new one", configPath);
+			std::fill(enabledClasses, enabledClasses + RE::BSShader::Type::Total - 1, true);
+			enabledClasses[RE::BSShader::Type::ImageSpace - 1] = false;
+			enabledClasses[RE::BSShader::Type::Utility - 1] = false;
+			Save(configMode);
+			i.open(configPath);
+			if (!i.is_open()) {
+				logger::error("Error opening config file ({})\n", configPath);
+				return;
+			}
 		}
 	}
 	logger::info("Loading config file ({})", configPath);
@@ -155,6 +257,10 @@ void State::Load(bool a_test)
 			shaderCache.compilationThreadCount = std::clamp(advanced["Compiler Threads"].get<int32_t>(), 1, static_cast<int32_t>(std::thread::hardware_concurrency()));
 		if (advanced["Background Compiler Threads"].is_number_integer())
 			shaderCache.backgroundCompilationThreadCount = std::clamp(advanced["Background Compiler Threads"].get<int32_t>(), 1, static_cast<int32_t>(std::thread::hardware_concurrency()));
+		if (advanced["Use FileWatcher"].is_boolean())
+			shaderCache.SetFileWatcher(advanced["Use FileWatcher"]);
+		if (advanced["Extended Frame Annotations"].is_boolean())
+			extendedFrameAnnotations = advanced["Extended Frame Annotations"];
 	}
 
 	if (settings["General"].is_object()) {
@@ -185,14 +291,15 @@ void State::Load(bool a_test)
 	i.close();
 	if (settings["Version"].is_string() && settings["Version"].get<std::string>() != Plugin::VERSION.string()) {
 		logger::info("Found older config for version {}; upgrading to {}", (std::string)settings["Version"], Plugin::VERSION.string());
-		Save();
+		Save(configMode);
 	}
 }
 
-void State::Save(bool a_test)
+void State::Save(ConfigMode a_configMode)
 {
 	auto& shaderCache = SIE::ShaderCache::Instance();
-	std::ofstream o{ a_test ? testConfigPath : userConfigPath };
+	std::string configPath = GetConfigPath(a_configMode);
+	std::ofstream o{ configPath };
 	json settings;
 
 	Menu::GetSingleton()->Save(settings);
@@ -203,6 +310,8 @@ void State::Save(bool a_test)
 	advanced["Shader Defines"] = shaderDefinesString;
 	advanced["Compiler Threads"] = shaderCache.compilationThreadCount;
 	advanced["Background Compiler Threads"] = shaderCache.backgroundCompilationThreadCount;
+	advanced["Use FileWatcher"] = shaderCache.UseFileWatcher();
+	advanced["Extended Frame Annotations"] = extendedFrameAnnotations;
 	settings["Advanced"] = advanced;
 
 	json general;
@@ -224,7 +333,7 @@ void State::Save(bool a_test)
 		feature->Save(settings);
 
 	o << settings.dump(1);
-	logger::info("Saving settings to {}", userConfigPath);
+	logger::info("Saving settings to {}", configPath);
 }
 
 void State::PostPostLoad()
@@ -234,6 +343,7 @@ void State::PostPostLoad()
 		logger::info("Skyrim Upscaler detected");
 	else
 		logger::info("Skyrim Upscaler not detected");
+	Deferred::Hooks::Install();
 }
 
 bool State::ValidateCache(CSimpleIniA& a_ini)
@@ -314,8 +424,16 @@ bool State::IsDeveloperMode()
 	return GetLogLevel() <= spdlog::level::debug;
 }
 
+void State::ModifyRenderTarget(RE::RENDER_TARGETS::RENDER_TARGET a_target, RE::BSGraphics::RenderTargetProperties* a_properties)
+{
+	a_properties->supportUnorderedAccess = true;
+	logger::debug("Adding UAV access to {}", magic_enum::enum_name(a_target));
+}
+
 void State::SetupResources()
 {
+	auto renderer = RE::BSGraphics::Renderer::GetSingleton();
+
 	D3D11_BUFFER_DESC sbDesc{};
 	sbDesc.Usage = D3D11_USAGE_DYNAMIC;
 	sbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
@@ -336,13 +454,24 @@ void State::SetupResources()
 	sbDesc.ByteWidth = sizeof(LightingData);
 	lightingDataBuffer = std::make_unique<Buffer>(sbDesc);
 	lightingDataBuffer->CreateSRV(srvDesc);
+
+	// Grab main texture to get resolution
+	// VR cannot use viewport->screenWidth/Height as it's the desktop preview window's resolution and not HMD
+	D3D11_TEXTURE2D_DESC texDesc{};
+	renderer->GetRuntimeData().renderTargets[RE::RENDER_TARGETS::kMAIN].texture->GetDesc(&texDesc);
+
+	isVR = REL::Module::IsVR();
+	screenWidth = (float)texDesc.Width;
+	screenHeight = (float)texDesc.Height;
+	context = reinterpret_cast<ID3D11DeviceContext*>(renderer->GetRuntimeData().context);
+	device = reinterpret_cast<ID3D11Device*>(renderer->GetRuntimeData().forwarder);
+	shadowState = RE::BSGraphics::RendererShadowState::GetSingleton();
+	context->QueryInterface(__uuidof(pPerf), reinterpret_cast<void**>(&pPerf));
 }
 
 void State::ModifyShaderLookup(const RE::BSShader& a_shader, uint& a_vertexDescriptor, uint& a_pixelDescriptor)
 {
-	if (a_shader.shaderType.get() == RE::BSShader::Type::Lighting || a_shader.shaderType.get() == RE::BSShader::Type::Water) {
-		auto context = RE::BSGraphics::Renderer::GetSingleton()->GetRuntimeData().context;
-
+	if (a_shader.shaderType.get() == RE::BSShader::Type::Lighting || a_shader.shaderType.get() == RE::BSShader::Type::Water || a_shader.shaderType.get() == RE::BSShader::Type::Effect || a_shader.shaderType.get() == RE::BSShader::Type::DistantTree) {
 		if (a_vertexDescriptor != lastVertexDescriptor || a_pixelDescriptor != lastPixelDescriptor) {
 			PerShader data{};
 			data.VertexShaderDescriptor = a_vertexDescriptor;
@@ -358,60 +487,89 @@ void State::ModifyShaderLookup(const RE::BSShader& a_shader, uint& a_vertexDescr
 			lastPixelDescriptor = a_pixelDescriptor;
 		}
 
-		if (a_shader.shaderType.get() == RE::BSShader::Type::Lighting) {
-			a_vertexDescriptor &= ~((uint32_t)SIE::ShaderCache::LightingShaderFlags::AdditionalAlphaMask |
-									(uint32_t)SIE::ShaderCache::LightingShaderFlags::AmbientSpecular |
-									(uint32_t)SIE::ShaderCache::LightingShaderFlags::DoAlphaTest |
-									(uint32_t)SIE::ShaderCache::LightingShaderFlags::ShadowDir |
-									(uint32_t)SIE::ShaderCache::LightingShaderFlags::DefShadow |
-									(uint32_t)SIE::ShaderCache::LightingShaderFlags::CharacterLight |
-									(uint32_t)SIE::ShaderCache::LightingShaderFlags::RimLighting |
-									(uint32_t)SIE::ShaderCache::LightingShaderFlags::SoftLighting |
-									(uint32_t)SIE::ShaderCache::LightingShaderFlags::BackLighting |
-									(uint32_t)SIE::ShaderCache::LightingShaderFlags::Specular |
-									(uint32_t)SIE::ShaderCache::LightingShaderFlags::AnisoLighting |
-									(uint32_t)SIE::ShaderCache::LightingShaderFlags::BaseObjectIsSnow |
-									(uint32_t)SIE::ShaderCache::LightingShaderFlags::Snow);
-
-			a_pixelDescriptor &= ~((uint32_t)SIE::ShaderCache::LightingShaderFlags::AmbientSpecular |
-								   (uint32_t)SIE::ShaderCache::LightingShaderFlags::ShadowDir |
-								   (uint32_t)SIE::ShaderCache::LightingShaderFlags::DefShadow |
-								   (uint32_t)SIE::ShaderCache::LightingShaderFlags::CharacterLight);
-
-			static auto enableImprovedSnow = RE::GetINISetting("bEnableImprovedSnow:Display");
-			static bool vr = REL::Module::IsVR();
-
-			if (vr || !enableImprovedSnow->GetBool())
-				a_pixelDescriptor &= ~((uint32_t)SIE::ShaderCache::LightingShaderFlags::Snow);
-
+		switch (a_shader.shaderType.get()) {
+		case RE::BSShader::Type::Lighting:
 			{
-				uint32_t technique = 0x3F & (a_vertexDescriptor >> 24);
-				if (technique == (uint32_t)SIE::ShaderCache::LightingShaderTechniques::Glowmap ||
-					technique == (uint32_t)SIE::ShaderCache::LightingShaderTechniques::Parallax ||
-					technique == (uint32_t)SIE::ShaderCache::LightingShaderTechniques::Facegen ||
-					technique == (uint32_t)SIE::ShaderCache::LightingShaderTechniques::FacegenRGBTint ||
-					technique == (uint32_t)SIE::ShaderCache::LightingShaderTechniques::LODObjects ||
-					technique == (uint32_t)SIE::ShaderCache::LightingShaderTechniques::LODObjectHD ||
-					technique == (uint32_t)SIE::ShaderCache::LightingShaderTechniques::MultiIndexSparkle ||
-					technique == (uint32_t)SIE::ShaderCache::LightingShaderTechniques::Hair)
-					a_vertexDescriptor &= ~(0x3F << 24);
-			}
+				a_vertexDescriptor &= ~((uint32_t)SIE::ShaderCache::LightingShaderFlags::AdditionalAlphaMask |
+										(uint32_t)SIE::ShaderCache::LightingShaderFlags::AmbientSpecular |
+										(uint32_t)SIE::ShaderCache::LightingShaderFlags::DoAlphaTest |
+										(uint32_t)SIE::ShaderCache::LightingShaderFlags::ShadowDir |
+										(uint32_t)SIE::ShaderCache::LightingShaderFlags::DefShadow |
+										(uint32_t)SIE::ShaderCache::LightingShaderFlags::CharacterLight |
+										(uint32_t)SIE::ShaderCache::LightingShaderFlags::RimLighting |
+										(uint32_t)SIE::ShaderCache::LightingShaderFlags::SoftLighting |
+										(uint32_t)SIE::ShaderCache::LightingShaderFlags::BackLighting |
+										(uint32_t)SIE::ShaderCache::LightingShaderFlags::Specular |
+										(uint32_t)SIE::ShaderCache::LightingShaderFlags::AnisoLighting |
+										(uint32_t)SIE::ShaderCache::LightingShaderFlags::BaseObjectIsSnow |
+										(uint32_t)SIE::ShaderCache::LightingShaderFlags::Snow);
 
+				a_pixelDescriptor &= ~((uint32_t)SIE::ShaderCache::LightingShaderFlags::AmbientSpecular |
+									   (uint32_t)SIE::ShaderCache::LightingShaderFlags::ShadowDir |
+									   (uint32_t)SIE::ShaderCache::LightingShaderFlags::DefShadow |
+									   (uint32_t)SIE::ShaderCache::LightingShaderFlags::CharacterLight);
+
+				static auto enableImprovedSnow = RE::GetINISetting("bEnableImprovedSnow:Display");
+				static bool vr = REL::Module::IsVR();
+
+				if (vr || !enableImprovedSnow->GetBool())
+					a_pixelDescriptor &= ~((uint32_t)SIE::ShaderCache::LightingShaderFlags::Snow);
+
+				if (Deferred::GetSingleton()->deferredPass)
+					a_pixelDescriptor |= (uint32_t)SIE::ShaderCache::LightingShaderFlags::Deferred;
+
+				{
+					uint32_t technique = 0x3F & (a_vertexDescriptor >> 24);
+					if (technique == (uint32_t)SIE::ShaderCache::LightingShaderTechniques::Glowmap ||
+						technique == (uint32_t)SIE::ShaderCache::LightingShaderTechniques::Parallax ||
+						technique == (uint32_t)SIE::ShaderCache::LightingShaderTechniques::Facegen ||
+						technique == (uint32_t)SIE::ShaderCache::LightingShaderTechniques::FacegenRGBTint ||
+						technique == (uint32_t)SIE::ShaderCache::LightingShaderTechniques::LODObjects ||
+						technique == (uint32_t)SIE::ShaderCache::LightingShaderTechniques::LODObjectHD ||
+						technique == (uint32_t)SIE::ShaderCache::LightingShaderTechniques::MultiIndexSparkle ||
+						technique == (uint32_t)SIE::ShaderCache::LightingShaderTechniques::Hair)
+						a_vertexDescriptor &= ~(0x3F << 24);
+				}
+
+				{
+					uint32_t technique = 0x3F & (a_pixelDescriptor >> 24);
+					if (technique == (uint32_t)SIE::ShaderCache::LightingShaderTechniques::Glowmap)
+						a_pixelDescriptor &= ~(0x3F << 24);
+				}
+			}
+			break;
+		case RE::BSShader::Type::Water:
 			{
-				uint32_t technique = 0x3F & (a_pixelDescriptor >> 24);
-				if (technique == (uint32_t)SIE::ShaderCache::LightingShaderTechniques::Glowmap)
-					a_pixelDescriptor &= ~(0x3F << 24);
+				a_vertexDescriptor &= ~((uint32_t)SIE::ShaderCache::WaterShaderFlags::Reflections |
+										(uint32_t)SIE::ShaderCache::WaterShaderFlags::Cubemap |
+										(uint32_t)SIE::ShaderCache::WaterShaderFlags::Interior |
+										(uint32_t)SIE::ShaderCache::WaterShaderFlags::Reflections);
+
+				a_pixelDescriptor &= ~((uint32_t)SIE::ShaderCache::WaterShaderFlags::Reflections |
+									   (uint32_t)SIE::ShaderCache::WaterShaderFlags::Cubemap |
+									   (uint32_t)SIE::ShaderCache::WaterShaderFlags::Interior);
 			}
+			break;
+		case RE::BSShader::Type::Effect:
+			{
+				a_vertexDescriptor &= ~((uint32_t)SIE::ShaderCache::EffectShaderFlags::GrayscaleToColor |
+										(uint32_t)SIE::ShaderCache::EffectShaderFlags::GrayscaleToAlpha |
+										(uint32_t)SIE::ShaderCache::EffectShaderFlags::IgnoreTexAlpha);
 
-		} else {
-			a_vertexDescriptor &= ~((uint32_t)SIE::ShaderCache::WaterShaderFlags::Reflections |
-									(uint32_t)SIE::ShaderCache::WaterShaderFlags::Cubemap |
-									(uint32_t)SIE::ShaderCache::WaterShaderFlags::Interior |
-									(uint32_t)SIE::ShaderCache::WaterShaderFlags::Reflections);
+				a_pixelDescriptor &= ~((uint32_t)SIE::ShaderCache::EffectShaderFlags::GrayscaleToColor |
+									   (uint32_t)SIE::ShaderCache::EffectShaderFlags::GrayscaleToAlpha |
+									   (uint32_t)SIE::ShaderCache::EffectShaderFlags::IgnoreTexAlpha);
 
-			a_pixelDescriptor &= ~((uint32_t)SIE::ShaderCache::WaterShaderFlags::Reflections |
-								   (uint32_t)SIE::ShaderCache::WaterShaderFlags::Cubemap |
-								   (uint32_t)SIE::ShaderCache::WaterShaderFlags::Interior);
+				if (Deferred::GetSingleton()->deferredPass)
+					a_pixelDescriptor |= (uint32_t)SIE::ShaderCache::EffectShaderFlags::Deferred;
+			}
+			break;
+		case RE::BSShader::Type::DistantTree:
+			{
+				if (Deferred::GetSingleton()->deferredPass)
+					a_pixelDescriptor |= (uint32_t)SIE::ShaderCache::DistantTreeShaderFlags::Deferred;
+			}
+			break;
 		}
 
 		ID3D11ShaderResourceView* view = shaderDataBuffer->srv.get();
@@ -419,16 +577,29 @@ void State::ModifyShaderLookup(const RE::BSShader& a_shader, uint& a_vertexDescr
 	}
 }
 
+void State::BeginPerfEvent(std::string_view title)
+{
+	pPerf->BeginEvent(std::wstring(title.begin(), title.end()).c_str());
+}
+
+void State::EndPerfEvent()
+{
+	pPerf->EndEvent();
+}
+
+void State::SetPerfMarker(std::string_view title)
+{
+	pPerf->SetMarker(std::wstring(title.begin(), title.end()).c_str());
+}
+
 void State::UpdateSharedData(const RE::BSShader* a_shader, const uint32_t)
 {
 	if (a_shader->shaderType.get() == RE::BSShader::Type::Lighting) {
 		bool updateBuffer = false;
 
-		auto shadowState = RE::BSGraphics::RendererShadowState::GetSingleton();
+		GET_INSTANCE_MEMBER(cubeMapRenderTarget, shadowState);
 
-		bool currentReflections = (!REL::Module::IsVR() ?
-										  RE::BSGraphics::RendererShadowState::GetSingleton()->GetRuntimeData().cubeMapRenderTarget :
-										  RE::BSGraphics::RendererShadowState::GetSingleton()->GetVRRuntimeData().cubeMapRenderTarget) == RE::RENDER_TARGETS_CUBEMAP::kREFLECTIONS;
+		bool currentReflections = cubeMapRenderTarget == RE::RENDER_TARGETS_CUBEMAP::kREFLECTIONS;
 
 		if (lightingData.Reflections != (uint)currentReflections) {
 			updateBuffer = true;
@@ -449,7 +620,21 @@ void State::UpdateSharedData(const RE::BSShader* a_shader, const uint32_t)
 			updateBuffer = true;
 		}
 
-		auto context = RE::BSGraphics::Renderer::GetSingleton()->GetRuntimeData().context;
+		auto cameraData = Util::GetCameraData();
+		if (lightingData.CameraData != cameraData) {
+			lightingData.CameraData = cameraData;
+			updateBuffer = true;
+		}
+
+		auto renderer = RE::BSGraphics::Renderer::GetSingleton();
+
+		float2 bufferDim = { screenWidth, screenHeight };
+
+		if (bufferDim != lightingData.BufferDim) {
+			lightingData.BufferDim = bufferDim;
+		}
+
+		lightingData.Timer = timer;
 
 		if (updateBuffer) {
 			D3D11_MAPPED_SUBRESOURCE mapped;
@@ -457,9 +642,12 @@ void State::UpdateSharedData(const RE::BSShader* a_shader, const uint32_t)
 			size_t bytes = sizeof(LightingData);
 			memcpy_s(mapped.pData, bytes, &lightingData, bytes);
 			context->Unmap(lightingDataBuffer->resource.get(), 0);
-		}
 
-		ID3D11ShaderResourceView* view = lightingDataBuffer->srv.get();
-		context->PSSetShaderResources(126, 1, &view);
+			ID3D11ShaderResourceView* view = lightingDataBuffer->srv.get();
+			context->PSSetShaderResources(126, 1, &view);
+
+			view = renderer->GetDepthStencilData().depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kPOST_ZPREPASS_COPY].depthSRV;
+			context->PSSetShaderResources(20, 1, &view);
+		}
 	}
 }

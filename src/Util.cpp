@@ -111,7 +111,7 @@ namespace Util
 
 	ID3D11DeviceChild* CompileShader(const wchar_t* FilePath, const std::vector<std::pair<const char*, const char*>>& Defines, const char* ProgramType, const char* Program)
 	{
-		auto device = RE::BSGraphics::Renderer::GetSingleton()->GetRuntimeData().forwarder;
+		auto& device = State::GetSingleton()->device;
 
 		// Build defines (aka convert vector->D3DCONSTANT array)
 		std::vector<D3D_SHADER_MACRO> macros;
@@ -153,7 +153,7 @@ namespace Util
 		macros.push_back({ nullptr, nullptr });
 
 		// Compiler setup
-		uint32_t flags = D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_OPTIMIZATION_LEVEL3;
+		uint32_t flags = !State::GetSingleton()->IsDeveloperMode() ? (D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_OPTIMIZATION_LEVEL3) : D3DCOMPILE_DEBUG;
 
 		ID3DBlob* shaderBlob;
 		ID3DBlob* shaderErrors;
@@ -163,6 +163,10 @@ namespace Util
 		std::transform(path.begin(), path.end(), std::back_inserter(str), [](wchar_t c) {
 			return (char)c;
 		});
+		if (!std::filesystem::exists(FilePath)) {
+			logger::error("Failed to compile shader; {} does not exist", str);
+			return nullptr;
+		}
 		logger::debug("Compiling {} with {}", str, DefinesToString(macros));
 		if (FAILED(D3DCompileFromFile(FilePath, macros.data(), D3D_COMPILE_STANDARD_FILE_INCLUDE, Program, ProgramType, flags, 0, &shaderBlob, &shaderErrors))) {
 			logger::warn("Shader compilation failed:\n\n{}", shaderErrors ? (const char*)shaderErrors->GetBufferPointer() : "Unknown error");
@@ -235,7 +239,7 @@ namespace Util
 
 	float TryGetWaterHeight(float offsetX, float offsetY)
 	{
-		if (auto shadowState = RE::BSGraphics::RendererShadowState::GetSingleton()) {
+		if (auto& shadowState = State::GetSingleton()->shadowState) {
 			if (auto tes = RE::TES::GetSingleton()) {
 				auto position = !REL::Module::IsVR() ? shadowState->GetRuntimeData().posAdjust.getEye() : shadowState->GetVRRuntimeData().posAdjust.getEye();
 				position.x += offsetX;
@@ -266,13 +270,15 @@ namespace Util
 	}
 	float4 GetCameraData()
 	{
-		auto accumulator = RE::BSGraphics::BSShaderAccumulator::GetCurrentAccumulator();
-
-		float4 cameraData;
-		cameraData.x = accumulator->kCamera->GetRuntimeData2().viewFrustum.fFar;
-		cameraData.y = accumulator->kCamera->GetRuntimeData2().viewFrustum.fNear;
-		cameraData.z = accumulator->kCamera->GetRuntimeData2().viewFrustum.fFar - accumulator->kCamera->GetRuntimeData2().viewFrustum.fNear;
-		cameraData.w = accumulator->kCamera->GetRuntimeData2().viewFrustum.fFar * accumulator->kCamera->GetRuntimeData2().viewFrustum.fNear;
+		float4 cameraData{};
+		if (auto accumulator = RE::BSGraphics::BSShaderAccumulator::GetCurrentAccumulator()) {
+			if (accumulator->kCamera) {
+				cameraData.x = accumulator->kCamera->GetRuntimeData2().viewFrustum.fFar;
+				cameraData.y = accumulator->kCamera->GetRuntimeData2().viewFrustum.fNear;
+				cameraData.z = accumulator->kCamera->GetRuntimeData2().viewFrustum.fFar - accumulator->kCamera->GetRuntimeData2().viewFrustum.fNear;
+				cameraData.w = accumulator->kCamera->GetRuntimeData2().viewFrustum.fFar * accumulator->kCamera->GetRuntimeData2().viewFrustum.fNear;
+			}
+		}
 		return cameraData;
 	}
 
@@ -291,5 +297,41 @@ namespace Util
 			ImGui::PopTextWrapPos();
 			ImGui::EndTooltip();
 		}
+	}
+}
+
+namespace nlohmann
+{
+	void to_json(json& j, const float2& v)
+	{
+		j = json{ v.x, v.y };
+	}
+
+	void from_json(const json& j, float2& v)
+	{
+		std::array<float, 2> temp = j;
+		v = { temp[0], temp[1] };
+	}
+
+	void to_json(json& j, const float3& v)
+	{
+		j = json{ v.x, v.y, v.z };
+	}
+
+	void from_json(const json& j, float3& v)
+	{
+		std::array<float, 3> temp = j;
+		v = { temp[0], temp[1], temp[2] };
+	}
+
+	void to_json(json& j, const float4& v)
+	{
+		j = json{ v.x, v.y, v.z, v.w };
+	}
+
+	void from_json(const json& j, float4& v)
+	{
+		std::array<float, 4> temp = j;
+		v = { temp[0], temp[1], temp[2], temp[3] };
 	}
 }

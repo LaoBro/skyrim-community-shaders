@@ -14,8 +14,12 @@ public:
 	}
 
 	bool enabledClasses[RE::BSShader::Type::Total - 1];
+	bool enablePShaders = true;
+	bool enableVShaders = true;
 
+	bool updateShader = true;
 	RE::BSShader* currentShader = nullptr;
+
 	uint32_t currentVertexDescriptor = 0;
 	uint32_t currentPixelDescriptor = 0;
 	spdlog::level::level_enum logLevel = spdlog::level::info;
@@ -27,13 +31,23 @@ public:
 
 	bool upscalerLoaded = false;
 
+	float timer = 0;
+
+	enum ConfigMode
+	{
+		DEFAULT,
+		USER,
+		TEST
+	};
+
 	void Draw();
 	void DrawDeferred();
+	void DrawPreProcess();
 	void Reset();
 	void Setup();
 
-	void Load(bool a_test = false);
-	void Save(bool a_test = false);
+	void Load(ConfigMode a_configMode = ConfigMode::USER);
+	void Save(ConfigMode a_configMode = ConfigMode::USER);
 	void PostPostLoad();
 
 	bool ValidateCache(CSimpleIniA& a_ini);
@@ -73,8 +87,16 @@ public:
      */
 	bool IsDeveloperMode();
 
+	void ModifyRenderTarget(RE::RENDER_TARGETS::RENDER_TARGET a_targetIndex, RE::BSGraphics::RenderTargetProperties* a_properties);
+
 	void SetupResources();
 	void ModifyShaderLookup(const RE::BSShader& a_shader, uint& a_vertexDescriptor, uint& a_pixelDescriptor);
+
+	void BeginPerfEvent(std::string_view title);
+	void EndPerfEvent();
+	void SetPerfMarker(std::string_view title);
+
+	bool extendedFrameAnnotations = false;
 
 	struct PerShader
 	{
@@ -95,9 +117,23 @@ public:
 	{
 		float WaterHeight[25];
 		uint Reflections;
+		float4 CameraData;
+		float2 BufferDim;
+		float Timer;
 	};
 
 	LightingData lightingData{};
 
 	std::unique_ptr<Buffer> lightingDataBuffer = nullptr;
+
+	// Skyrim constants
+	bool isVR = false;
+	float screenWidth = 0;
+	float screenHeight = 0;
+	ID3D11DeviceContext* context = nullptr;
+	ID3D11Device* device = nullptr;
+	RE::BSGraphics::RendererShadowState* shadowState = nullptr;
+
+private:
+	std::shared_ptr<REX::W32::ID3DUserDefinedAnnotation> pPerf;
 };

@@ -1,3 +1,12 @@
+#include "Common/Color.hlsl"
+#include "Common/FrameBuffer.hlsl"
+#include "Common/GBuffer.hlsli"
+#include "Common/LightingData.hlsl"
+#include "Common/MotionBlur.hlsl"
+#include "Common/Permutation.hlsl"
+#include "Common/Skinned.hlsli"
+#include "Common/VR.hlsli"
+
 #define EFFECT
 
 struct VS_INPUT
@@ -24,6 +33,9 @@ struct VS_INPUT
 	float4 BoneWeights : BLENDWEIGHT0;
 	float4 BoneIndices : BLENDINDICES0;
 #endif
+#if defined(VR)
+	uint InstanceID : SV_INSTANCEID;
+#endif  // VR
 };
 
 struct VS_OUTPUT
@@ -61,27 +73,43 @@ struct VS_OUTPUT
 	float FogAlpha : TEXCOORD5;
 #endif
 #if defined(MOTIONVECTORS_NORMALS)
-#	if !(defined(MEMBRANE) && (defined(SKINNED) || defined(NORMALS)))
+#	if !defined(LIGHTING) && !(defined(MEMBRANE) && defined(SKINNED)) && !(defined(MEMBRANE) && !defined(SKINNED) && defined(NORMALS))
 	float3 ScreenSpaceNormal : TEXCOORD7;
 #	endif
 	float4 PreviousWorldPosition : POSITION2;
-#	if (defined(MEMBRANE) && defined(SKINNED) && !defined(NORMALS))
+#	if (defined(LIGHTING) || (defined(MEMBRANE) && defined(SKINNED))) && !(defined(MEMBRANE) && defined(NORMALS))
 	float3 ScreenSpaceNormal : TEXCOORD7;
 #	endif
 #endif
+#if defined(VR)
+	float ClipDistance : SV_ClipDistance0;  // o11
+	float CullDistance : SV_CullDistance0;  // p11
+	uint EyeIndex : EYEIDX0;
+#endif  // VR
 };
 
 #ifdef VSHADER
-cbuffer PerFrame : register(b12)
+cbuffer VS_PerFrame : register(b12)
 {
-	row_major float4x3 ScreenProj : packoffset(c0);
-	row_major float4x4 ViewProj : packoffset(c8);
-#	if defined(SKINNED)
-	float3 BonesPivot : packoffset(c40);
-#		if defined(MOTIONVECTORS_NORMALS)
-	float3 PreviousBonesPivot : packoffset(c41);
-#		endif
-#	endif
+#	if !defined(VR)
+	row_major float4x3 ScreenProj[1] : packoffset(c0);
+	row_major float4x4 ViewProj[1] : packoffset(c8);
+#		if defined(SKINNED)
+	float3 BonesPivot[1] : packoffset(c40);
+#			if defined(MOTIONVECTORS_NORMALS)
+	float3 PreviousBonesPivot[1] : packoffset(c41);
+#			endif  // MOTIONVECTORS_NORMALS
+#		endif      // SKINNED
+#	else
+	row_major float4x3 ScreenProj[2] : packoffset(c0);
+	row_major float4x4 ViewProj[2] : packoffset(c16);
+#		if defined(SKINNED)
+	float3 BonesPivot[2] : packoffset(c80);
+#			if defined(MOTIONVECTORS_NORMALS)
+	float3 PreviousBonesPivot[2] : packoffset(c82);
+#			endif  // MOTIONVECTORS_NORMALS
+#		endif      // SKINNED
+#	endif          // VR
 };
 
 cbuffer PerTechnique : register(b0)
@@ -100,74 +128,27 @@ cbuffer PerMaterial : register(b1)
 
 cbuffer PerGeometry : register(b2)
 {
-	row_major float3x4 World : packoffset(c0);
-	row_major float3x4 PreviousWorld : packoffset(c3);
+#	if !defined(VR)
+	row_major float3x4 World[1] : packoffset(c0);
+	row_major float3x4 PreviousWorld[1] : packoffset(c3);
 	float4 MatProj[3] : packoffset(c6);
-	float4 EyePosition : packoffset(c12);
-	float4 PosAdjust : packoffset(c13);
+	float4 EyePosition[1] : packoffset(c12);
+	float4 PosAdjust[1] : packoffset(c13);
 	float4 TexcoordOffsetMembrane : packoffset(c14);
+#	else
+	row_major float3x4 World[2] : packoffset(c0);
+	row_major float3x4 PreviousWorld[2] : packoffset(c6);
+	float4 MatProj[3] : packoffset(c12);
+	float4 EyePosition[2] : packoffset(c21);
+	float4 PosAdjust[2] : packoffset(c23);
+	float4 TexcoordOffsetMembrane : packoffset(c25);
+#	endif  // VR
 }
 
 cbuffer IndexedTexcoordBuffer : register(b11)
 {
 	float4 IndexedTexCoord[128] : packoffset(c0);
 }
-
-#	if defined(SKINNED)
-#		if defined(MOTIONVECTORS_NORMALS)
-cbuffer PreviousBonesBuffer : register(b9)
-{
-	float4 PreviousBones[240] : packoffset(c0);
-}
-#		endif
-
-cbuffer BonesBuffer : register(b10)
-{
-	float4 Bones[240] : packoffset(c0);
-}
-#	endif
-
-#	if defined(SKINNED)
-float3x4 GetBoneTransformMatrix(float4 bones[240], int4 actualIndices, float3 pivot, float4 weights)
-{
-	float3x4 pivotMatrix = transpose(float4x3(0.0.xxx, 0.0.xxx, 0.0.xxx, pivot));
-
-	float3x4 boneMatrix1 =
-		float3x4(bones[actualIndices.x], bones[actualIndices.x + 1], bones[actualIndices.x + 2]);
-	float3x4 boneMatrix2 =
-		float3x4(bones[actualIndices.y], bones[actualIndices.y + 1], bones[actualIndices.y + 2]);
-	float3x4 boneMatrix3 =
-		float3x4(bones[actualIndices.z], bones[actualIndices.z + 1], bones[actualIndices.z + 2]);
-	float3x4 boneMatrix4 =
-		float3x4(bones[actualIndices.w], bones[actualIndices.w + 1], bones[actualIndices.w + 2]);
-
-	float3x4 unitMatrix = float3x4(1.0.xxxx, 1.0.xxxx, 1.0.xxxx);
-	float3x4 weightMatrix1 = unitMatrix * weights.x;
-	float3x4 weightMatrix2 = unitMatrix * weights.y;
-	float3x4 weightMatrix3 = unitMatrix * weights.z;
-	float3x4 weightMatrix4 = unitMatrix * weights.w;
-
-	return (boneMatrix1 - pivotMatrix) * weightMatrix1 +
-	       (boneMatrix2 - pivotMatrix) * weightMatrix2 +
-	       (boneMatrix3 - pivotMatrix) * weightMatrix3 +
-	       (boneMatrix4 - pivotMatrix) * weightMatrix4;
-}
-
-float3x3 GetBoneRSMatrix(float4 bones[240], int4 actualIndices, float4 weights)
-{
-	float3x3 result;
-	for (int rowIndex = 0; rowIndex < 3; ++rowIndex) {
-		result[rowIndex] = weights.xxx * bones[actualIndices.x + rowIndex].xyz +
-		                   weights.yyy * bones[actualIndices.y + rowIndex].xyz +
-		                   weights.zzz * bones[actualIndices.z + rowIndex].xyz +
-		                   weights.www * bones[actualIndices.w + rowIndex].xyz;
-	}
-	return result;
-}
-#	endif
-
-#	define M_HALFPI 1.57079637;
-#	define M_PI 3.141593
 
 #	if defined(PROJECTED_UV)
 float GetProjectedU(float3 worldPosition, float4 texCoordOffset)
@@ -203,44 +184,48 @@ float GetProjectedU(float3 worldPosition, float4 texCoordOffset)
 	return abs(0.318309158 * projUvTmp4) * texCoordOffset.w + texCoordOffset.y;
 }
 
-float GetProjectedV(float3 worldPosition)
+float GetProjectedV(float3 worldPosition, uint a_eyeIndex = 0)
 {
-	return (-PosAdjust.x + (PosAdjust.z + worldPosition.z)) / PosAdjust.y;
+	return (-PosAdjust[a_eyeIndex].x + (PosAdjust[a_eyeIndex].z + worldPosition.z)) / PosAdjust[a_eyeIndex].y;
 }
 #	endif
 
 VS_OUTPUT main(VS_INPUT input)
 {
 	VS_OUTPUT vsout;
-
+	uint eyeIndex = GetEyeIndexVS(
+#	if defined(VR)
+		input.InstanceID
+#	endif  // VR
+	);
 	precise float4 inputPosition = float4(input.Position.xyz, 1.0);
 
-	precise float4x4 world4x4 = float4x4(World[0], World[1], World[2], float4(0, 0, 0, 1));
+	precise row_major float4x4 world4x4 = float4x4(World[eyeIndex][0], World[eyeIndex][1], World[eyeIndex][2], float4(0, 0, 0, 1));
 	precise float3x3 world3x3 =
-		transpose(float3x3(transpose(World)[0], transpose(World)[1], transpose(World)[2]));
+		transpose(float3x3(transpose(World[eyeIndex])[0], transpose(World[eyeIndex])[1], transpose(World[eyeIndex])[2]));
 
 #	if defined(SKY_OBJECT)
-	float4x4 viewProj = float4x4(ViewProj[0], ViewProj[1], ViewProj[3], ViewProj[3]);
+	float4x4 viewProj = float4x4(ViewProj[eyeIndex][0], ViewProj[eyeIndex][1], ViewProj[eyeIndex][3], ViewProj[eyeIndex][3]);
 #	else
-	float4x4 viewProj = ViewProj;
+	row_major float4x4 viewProj = ViewProj[eyeIndex];
 #	endif
 
 #	if defined(SKINNED)
 	precise int4 actualIndices = 765.01.xxxx * input.BoneIndices.xyzw;
 #		if defined(MOTIONVECTORS_NORMALS)
 	float3x4 previousBoneTransformMatrix =
-		GetBoneTransformMatrix(PreviousBones, actualIndices, PreviousBonesPivot, input.BoneWeights);
+		GetBoneTransformMatrix(PreviousBones, actualIndices, PreviousBonesPivot[eyeIndex], input.BoneWeights);
 	precise float4 previousWorldPosition =
 		float4(mul(inputPosition, transpose(previousBoneTransformMatrix)), 1);
 #		endif
 	float3x4 boneTransformMatrix =
-		GetBoneTransformMatrix(Bones, actualIndices, BonesPivot, input.BoneWeights);
+		GetBoneTransformMatrix(Bones, actualIndices, BonesPivot[eyeIndex], input.BoneWeights);
 	precise float4 worldPosition = float4(mul(inputPosition, transpose(boneTransformMatrix)), 1);
 	float4 viewPos = mul(viewProj, worldPosition);
 #	else
-	precise float4 worldPosition = float4(mul(World, inputPosition), 1);
-	precise float4 previousWorldPosition = float4(mul(PreviousWorld, inputPosition), 1);
-	precise float4x4 modelView = mul(viewProj, world4x4);
+	precise float4 worldPosition = float4(mul(World[eyeIndex], inputPosition), 1);
+	precise float4 previousWorldPosition = float4(mul(PreviousWorld[eyeIndex], inputPosition), 1);
+	precise row_major float4x4 modelView = mul(viewProj, world4x4);
 	float4 viewPos = mul(modelView, inputPosition);
 #	endif
 
@@ -308,7 +293,7 @@ VS_OUTPUT main(VS_INPUT input)
 #		if defined(NORMALS) && !defined(MEMBRANE)
 	texCoord.y = dot(MatProj[1].xyz, inputPosition.xyz);
 #		else
-	texCoord.y = GetProjectedV(worldPosition.xyz);
+	texCoord.y = GetProjectedV(worldPosition.xyz, eyeIndex);
 #		endif
 #	else
 #		if defined(TEXTURE)
@@ -323,7 +308,7 @@ VS_OUTPUT main(VS_INPUT input)
 	texCoord.w = input.TexCoord0.y;
 #	elif defined(SOFT)
 	texCoord.w = viewPos.w / SoftMateralVSParams.x;
-#	elif defined(MEMBRANE) && !defined(NORMALS)
+#	elif defined(MEMBRANE) && (!defined(NORMALS) || defined(ALPHA_TEST))
 	texCoord.w = input.TexCoord0.y;
 #	endif
 #	if defined(PROJECTED_UV) && !defined(NORMALS)
@@ -334,14 +319,14 @@ VS_OUTPUT main(VS_INPUT input)
 	float falloff = saturate((-FalloffData.x + abs(WdotN)) / (FalloffData.y - FalloffData.x));
 	float falloffParam = (falloff * falloff) * (3 - falloff * 2);
 	texCoord.z = lerp(FalloffData.z, FalloffData.w, falloffParam);
-#	elif defined(MEMBRANE) && !defined(NORMALS)
+#	elif defined(MEMBRANE) && (!defined(NORMALS) || defined(ALPHA_TEST))
 	texCoord.z = input.TexCoord0.x;
 #	endif
 	vsout.TexCoord0 = texCoord;
 
 	float3 eyePosition = 0.0.xxx;
 #	if defined(MEMBRANE) && defined(TEXTURE) && !defined(SKINNED)
-	eyePosition = EyePosition.xyz;
+	eyePosition = EyePosition[eyeIndex].xyz;
 #	endif
 
 	float3 viewPosition = inputPosition.xyz;
@@ -384,8 +369,8 @@ VS_OUTPUT main(VS_INPUT input)
 #		elif defined(FALLOFF) || (defined(SKINNED) && defined(MEMBRANE))
 	float3 screenSpaceNormal = worldNormal;
 #		else
-	float4x3 modelScreen = mul(ScreenProj, world3x3);
-	float3 screenSpaceNormal = normalize(mul(modelScreen, normal)).xyz;
+	float4x4 modelScreen = mul(ScreenProj[eyeIndex], world4x4);
+	float3 screenSpaceNormal = normalize(mul(modelScreen, float4(normal, 0))).xyz;
 #		endif
 
 	vsout.ScreenSpaceNormal = screenSpaceNormal;
@@ -406,6 +391,13 @@ VS_OUTPUT main(VS_INPUT input)
 	vsout.PreviousWorldPosition = previousWorldPosition;
 #	endif
 
+#	ifdef VR
+	vsout.EyeIndex = eyeIndex;
+	VR_OUTPUT VRout = GetVRVSOutput(vsout.Position, eyeIndex);
+	vsout.Position = VRout.VRPosition;
+	vsout.ClipDistance.x = VRout.ClipDistance;
+	vsout.CullDistance.x = VRout.CullDistance;
+#	endif  // VR
 	return vsout;
 }
 #endif
@@ -420,32 +412,46 @@ SamplerState SampGrayscaleSampler : register(s4);
 Texture2D<float4> TexBaseSampler : register(t0);
 Texture2D<float4> TexNormalSampler : register(t1);
 Texture2D<float4> TexNoiseSampler : register(t2);
-Texture2D<float4> TexDepthSampler : register(t3);
+Texture2D<float4> TexDepthSamplerEffect : register(t3);
 Texture2D<float4> TexGrayscaleSampler : register(t4);
 
+#if defined(DEFERRED)
 struct PS_OUTPUT
 {
-	float4 Color : SV_Target0;
-#if defined(MOTIONVECTORS_NORMALS)
+	float4 Diffuse : SV_Target0;
+#	if defined(MOTIONVECTORS_NORMALS)
+	float4 MotionVectors : SV_Target1;
+	float4 NormalGlossiness : SV_Target2;
+#	elif defined(NORMALS)
+	float4 NormalGlossiness : SV_Target2;
+#	endif
+	float4 Albedo : SV_Target3;
+	float4 Specular : SV_Target4;
+	float4 Reflectance : SV_Target5;
+	float4 Masks : SV_Target6;
+};
+#else
+struct PS_OUTPUT
+{
+	float4 Diffuse : SV_Target0;
+#	if defined(MOTIONVECTORS_NORMALS)
 	float2 MotionVectors : SV_Target1;
 	float4 ScreenSpaceNormals : SV_Target2;
-#else
+#	else
 	float4 Normal : SV_Target1;
 	float4 Color2 : SV_Target2;
-#endif
+#	endif
 };
+#endif
 
 #ifdef PSHADER
 
-#	include "Common/Color.hlsl"
-#	include "Common/FrameBuffer.hlsl"
-#	include "Common/MotionBlur.hlsl"
-#	include "Common/Permutation.hlsl"
-
-cbuffer AlphaTestRefBuffer : register(b11)
+#	if !defined(VR)
+cbuffer AlphaTestRefCB : register(b11)
 {
-	float AlphaTestRef1 : packoffset(c0);
+	float AlphaTestRefRS : packoffset(c0);
 }
+#	endif  // !VR
 
 cbuffer PerTechnique : register(b0)
 {
@@ -463,9 +469,10 @@ cbuffer PerMaterial : register(b1)
 
 cbuffer PerGeometry : register(b2)
 {
-	float4 PLightPositionX : packoffset(c0);
-	float4 PLightPositionY : packoffset(c1);
-	float4 PLightPositionZ : packoffset(c2);
+#	if !defined(VR)
+	float4 PLightPositionX[1] : packoffset(c0);
+	float4 PLightPositionY[1] : packoffset(c1);
+	float4 PLightPositionZ[1] : packoffset(c2);
 	float4 PLightingRadiusInverseSquared : packoffset(c3);
 	float4 PLightColorR : packoffset(c4);
 	float4 PLightColorG : packoffset(c5);
@@ -475,6 +482,20 @@ cbuffer PerGeometry : register(b2)
 	float4 AlphaTestRef : packoffset(c9);
 	float4 MembraneRimColor : packoffset(c10);
 	float4 MembraneVars : packoffset(c11);
+#	else
+	float4 PLightPositionX[2] : packoffset(c0);
+	float4 PLightPositionY[2] : packoffset(c2);
+	float4 PLightPositionZ[2] : packoffset(c4);
+	float4 PLightingRadiusInverseSquared : packoffset(c6);
+	float4 PLightColorR : packoffset(c7);
+	float4 PLightColorG : packoffset(c8);
+	float4 PLightColorB : packoffset(c9);
+	float4 DLightColor : packoffset(c10);
+	float4 PropertyColor : packoffset(c11);  // VR should be 11; this could start earlier though
+	float4 AlphaTestRef : packoffset(c12);
+	float4 MembraneRimColor : packoffset(c13);
+	float4 MembraneVars : packoffset(c14);
+#	endif
 };
 
 #	if defined(MEMBRANE) || !defined(LIGHTING)
@@ -486,15 +507,15 @@ cbuffer PerGeometry : register(b2)
 #	endif
 
 #	if defined(LIGHTING)
-float3 GetLightingColor(float3 msPosition)
+float3 GetLightingColor(float3 msPosition, uint a_eyeIndex = 0)
 {
-	float4 lightDistanceSquared = (PLightPositionY - msPosition.yyyy) * (PLightPositionY - msPosition.yyyy) + (PLightPositionX - msPosition.xxxx) * (PLightPositionX - msPosition.xxxx) + (PLightPositionZ - msPosition.zzzz) * (PLightPositionZ - msPosition.zzzz);
+	float4 lightDistanceSquared = (PLightPositionX[a_eyeIndex] - msPosition.xxxx) * (PLightPositionX[a_eyeIndex] - msPosition.xxxx) + (PLightPositionY[a_eyeIndex] - msPosition.yyyy) * (PLightPositionY[a_eyeIndex] - msPosition.yyyy) + (PLightPositionZ[a_eyeIndex] - msPosition.zzzz) * (PLightPositionZ[a_eyeIndex] - msPosition.zzzz);
 	float4 lightFadeMul = 1.0.xxxx - saturate(PLightingRadiusInverseSquared * lightDistanceSquared);
 
 	float3 color = DLightColor.xyz;
 	color.x += dot(PLightColorR * lightFadeMul, 1.0.xxxx);
-	color.z += dot(PLightColorB * lightFadeMul, 1.0.xxxx);
 	color.y += dot(PLightColorG * lightFadeMul, 1.0.xxxx);
+	color.z += dot(PLightColorB * lightFadeMul, 1.0.xxxx);
 
 	return color;
 }
@@ -504,10 +525,19 @@ PS_OUTPUT main(PS_INPUT input)
 {
 	PS_OUTPUT psout;
 
-	float4 fogMul = float4(input.FogAlpha.xxx, 1);
+#	if !defined(VR)
+	uint eyeIndex = 0;
+#	else
+	uint eyeIndex = input.EyeIndex;
+#	endif  // !VR
+
+	float4 fogMul = 1;
+#	if !defined(MULTBLEND)
+	fogMul.xyz = input.FogAlpha;
+#	endif
 
 #	if defined(MEMBRANE)
-#		if !defined(MOTIONVECTORS_NORMALS)
+#		if !defined(MOTIONVECTORS_NORMALS) && defined(ALPHA_TEST)
 	float noiseAlpha = TexNoiseSampler.Sample(SampNoiseSampler, input.TexCoord0.zw).w;
 #			if defined(VC)
 	noiseAlpha *= input.Color.w;
@@ -515,8 +545,6 @@ PS_OUTPUT main(PS_INPUT input)
 	if (noiseAlpha - AlphaTestRef.x < 0) {
 		discard;
 	}
-#		endif
-#		if defined(ALPHA_TEST)
 #		endif
 
 #		if defined(MOTIONVECTORS_NORMALS) && defined(MEMBRANE) && !defined(SKINNED) && defined(NORMALS)
@@ -532,54 +560,27 @@ PS_OUTPUT main(PS_INPUT input)
 	float NdotV = dot(normal, input.ViewVector.xyz);
 	float membraneColorMul = pow(saturate(1 - NdotV), MembraneVars.x);
 	float4 membraneColor = MembraneRimColor * membraneColorMul;
-#	endif
-
-	float softMul = 1;
-#	if defined(SOFT)
-	float depth = TexDepthSampler.Load(int3(input.Position.xy, 0)).x;
-	softMul = saturate(-input.TexCoord0.w + LightingInfluence.y / ((1 - depth) * CameraData.z + CameraData.y));
-#	endif
-
-#	if defined(MEMBRANE)
-	float4 baseColorMul = float4(1, 1, 1, 1);
-#	else
-	float4 baseColorMul = BaseColor;
-#		if defined(VC)
-	baseColorMul *= input.Color;
-#		endif
-#	endif
-
-	float4 baseTexColor = float4(1, 1, 1, 1);
-	float4 baseColor = float4(1, 1, 1, 1);
-#	if defined(TEXTURE)
-	baseTexColor = TexBaseSampler.Sample(SampBaseSampler, input.TexCoord0.xy);
-	baseColor *= baseTexColor;
-#		if defined(IGNORE_TEX_ALPHA) || defined(GRAYSCALE_TO_ALPHA)
-	baseColor.w = 1;
-#		endif
-#	endif
-#	if defined(MEMBRANE)
-	baseColor.w *= input.ViewVector.w;
-#	else
-	baseColor.w *= input.TexCoord0.z;
-#	endif
-
-	baseColor *= baseColorMul;
-	baseColor.w *= softMul;
-
-#	if defined(SOFT)
-	if (baseColor.w - 0.003 < 0) {
+#	elif defined(PROJECTED_UV) && defined(NORMALS)
+	float2 noiseTexCoord = 0.00333333341 * input.TexCoord0.xy;
+	float noise = TexNoiseSampler.Sample(SampNoiseSampler, noiseTexCoord).x * 0.2 + 0.4;
+	if (dot(input.TBN0, input.TBN1) - noise < 0) {
 		discard;
 	}
 #	endif
 
+	float softMul = 1;
+#	if defined(SOFT)
+	float depth = TexDepthSamplerEffect.Load(int3(input.Position.xy, 0)).x;
+	softMul = saturate(-input.TexCoord0.w + LightingInfluence.y / ((1 - depth) * CameraData.z + CameraData.y));
+#	endif
+
 	float lightingInfluence = LightingInfluence.x;
 	float3 propertyColor = PropertyColor.xyz;
+
 #	if defined(LIGHTING)
-	propertyColor = GetLightingColor(input.MSPosition);
+	propertyColor = GetLightingColor(input.MSPosition, eyeIndex);
 
 #		if defined(LIGHT_LIMIT_FIX)
-	uint eyeIndex = 0;
 	uint lightCount = 0;
 	if (LightingInfluence.x > 0.0) {
 		float3 viewPosition = mul(CameraView[eyeIndex], float4(input.WorldPosition.xyz, 1)).xyz;
@@ -608,35 +609,80 @@ PS_OUTPUT main(PS_INPUT input)
 	lightingInfluence = 0;
 #	endif
 
-#	if defined(GRAYSCALE_TO_COLOR)
-	baseColor.xyz = BaseColorScale.x * TexGrayscaleSampler.Sample(SampGrayscaleSampler, float2(baseTexColor.y, baseColorMul.x)).xyz;
+	float4 baseTexColor = float4(1, 1, 1, 1);
+	float4 baseColor = float4(1, 1, 1, 1);
+#	if defined(TEXTURE) || (defined(ADDBLEND) && defined(VC))
+	baseTexColor = TexBaseSampler.Sample(SampBaseSampler, input.TexCoord0.xy);
+	baseColor *= baseTexColor;
+	if (shaderDescriptors[0].PixelShaderDescriptor & _IgnoreTexAlpha || shaderDescriptors[0].PixelShaderDescriptor & _GrayscaleToAlpha)
+		baseColor.w = 1;
 #	endif
 
-	float alpha = PropertyColor.w * baseColor.w;
-
-#	if defined(GRAYSCALE_TO_ALPHA)
-	alpha = TexGrayscaleSampler.Sample(SampGrayscaleSampler, float2(baseTexColor.w, alpha)).w;
+#	if defined(MEMBRANE)
+	float4 baseColorMul = float4(1, 1, 1, 1);
+#	else
+	float4 baseColorMul = BaseColor;
+#		if defined(VC)
+	baseColorMul *= input.Color;
+#		endif
 #	endif
+
+#	if defined(MEMBRANE)
+	baseColor.w *= input.ViewVector.w;
+#	else
+	baseColor.w *= input.TexCoord0.z;
+#	endif
+
+	baseColor = baseColorMul * baseColor;
+	baseColor.w *= softMul;
+
+#	if defined(SOFT) && !(defined(FALLOFF) && defined(MULTBLEND))
+	if (baseColor.w - 0.003 < 0) {
+		discard;
+	}
+#	endif
+
+	float alpha = baseColor.w;
 
 #	if defined(BLOOD)
-	baseColor.w = baseColor.y;
+	alpha = baseColor.y;
 	float deltaY = saturate(baseColor.y - AlphaTestRef.x);
 	float bloodMul = baseColor.z;
+#		if defined(VC)
+	bloodMul *= input.Color.w;
+#		endif
 	if (deltaY < AlphaTestRef.y) {
 		bloodMul *= (deltaY / AlphaTestRef.y);
 	}
 	baseColor.xyz = saturate(float3(2, 1, 1) - bloodMul.xxx) * (-bloodMul * AlphaTestRef.z + 1);
 #	endif
 
+	alpha *= PropertyColor.w;
+
+	float baseColorScale = BaseColorScale.x;
+
 #	if defined(MEMBRANE)
 	baseColor.xyz = (PropertyColor.xyz + baseColor.xyz) * alpha + membraneColor.xyz * membraneColor.w;
 	alpha += membraneColor.w;
+	baseColorScale = MembraneVars.z;
 #	endif
+
+	if (shaderDescriptors[0].PixelShaderDescriptor & _GrayscaleToAlpha)
+		alpha = TexGrayscaleSampler.Sample(SampGrayscaleSampler, float2(baseTexColor.w, alpha)).w;
+
+	[branch] if (shaderDescriptors[0].PixelShaderDescriptor & _GrayscaleToColor)
+	{
+		float2 grayscaleToColorUv = float2(baseTexColor.y, baseColorMul.x);
+#	if defined(MEMBRANE)
+		grayscaleToColorUv.y = PropertyColor.x;
+#	endif
+		baseColor.xyz = BaseColorScale.x * TexGrayscaleSampler.Sample(SampGrayscaleSampler, grayscaleToColorUv).xyz;
+	}
 
 	float3 lightColor = lerp(baseColor.xyz, propertyColor * baseColor.xyz, lightingInfluence.xxx);
 
 #	if !defined(MOTIONVECTORS_NORMALS)
-	if (alpha * fogMul.w - AlphaTestRef1 < 0) {
+	if (alpha * fogMul.w - AlphaTestRefRS < 0) {
 		discard;
 	}
 #	endif
@@ -656,25 +702,41 @@ PS_OUTPUT main(PS_INPUT input)
 	float4 finalColor = float4(blendedColor, alpha);
 #	if defined(MULTBLEND_DECAL)
 	finalColor.xyz *= alpha;
-#	elif !defined(MULTBLEND)
+#	else
 	finalColor *= fogMul;
 #	endif
-	psout.Color = finalColor;
+	psout.Diffuse = finalColor;
 #	if defined(LIGHT_LIMIT_FIX) && defined(LLFDEBUG)
 	if (perPassLLF[0].EnableLightsVisualisation) {
 		if (perPassLLF[0].LightsVisualisationMode == 0) {
-			psout.Color.xyz = TurboColormap(0.0);
+			psout.Diffuse.xyz = TurboColormap(0.0);
 		} else if (perPassLLF[0].LightsVisualisationMode == 1) {
-			psout.Color.xyz = TurboColormap(0.0);
+			psout.Diffuse.xyz = TurboColormap(0.0);
 		} else {
-			psout.Color.xyz = TurboColormap((float)lightCount / 128.0);
+			psout.Diffuse.xyz = TurboColormap((float)lightCount / 128.0);
 		}
 	}
 #	endif
 
-#	if defined(MOTIONVECTORS_NORMALS)
-	float2 screenMotionVector = GetSSMotionVector(input.WorldPosition, input.PreviousWorldPosition, 0);
+#	if defined(DEFERRED)
 
+#		if defined(MOTIONVECTORS_NORMALS)
+#			if (defined(MEMBRANE) && defined(SKINNED) && defined(NORMALS))
+	float3 screenSpaceNormal = normalize(input.TBN0);
+#			else
+	float3 screenSpaceNormal = normalize(input.ScreenSpaceNormal);
+#			endif
+	psout.NormalGlossiness = float4(EncodeNormal(screenSpaceNormal), 0.0, psout.Diffuse.w);
+	float2 screenMotionVector = GetSSMotionVector(input.WorldPosition, input.PreviousWorldPosition, eyeIndex);
+	psout.MotionVectors = float4(screenMotionVector, 0.0, psout.Diffuse.w);
+#		endif
+
+	psout.Specular = float4(0.0.xxx, psout.Diffuse.w);
+	psout.Albedo = float4(baseColor.xyz * psout.Diffuse.w, psout.Diffuse.w);
+	psout.Reflectance = float4(0.0.xxx, psout.Diffuse.w);
+
+#	elif defined(MOTIONVECTORS_NORMALS)
+	float2 screenMotionVector = GetSSMotionVector(input.WorldPosition, input.PreviousWorldPosition, eyeIndex);
 	psout.MotionVectors = screenMotionVector;
 
 #		if (defined(MEMBRANE) && defined(SKINNED) && defined(NORMALS))

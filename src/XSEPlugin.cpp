@@ -1,5 +1,6 @@
 #include "Hooks.h"
 
+#include "FrameAnnotations.h"
 #include "Menu.h"
 #include "ShaderCache.h"
 #include "State.h"
@@ -46,7 +47,7 @@ void InitializeLog([[maybe_unused]] spdlog::level::level_enum a_level = spdlog::
 extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Load(const SKSE::LoadInterface* a_skse)
 {
 #ifndef NDEBUG
-	while (!WinAPI::IsDebuggerPresent()) {};
+	while (!REX::W32::IsDebuggerPresent()) {};
 #endif
 	InitializeLog();
 	logger::info("Loaded {} {}", Plugin::NAME, Plugin::VERSION.string());
@@ -93,11 +94,13 @@ void MessageHandler(SKSE::MessagingInterface::Message* message)
 			if (errors.empty()) {
 				State::GetSingleton()->PostPostLoad();
 				Hooks::Install();
+				FrameAnnotations::OnPostPostLoad();
 
 				auto& shaderCache = SIE::ShaderCache::Instance();
 
 				shaderCache.ValidateDiskCache();
-
+				if (shaderCache.UseFileWatcher())
+					shaderCache.StartFileWatcher();
 				for (auto* feature : Feature::GetFeatureList()) {
 					if (feature->loaded) {
 						feature->PostPostLoad();
@@ -119,6 +122,8 @@ void MessageHandler(SKSE::MessagingInterface::Message* message)
 			}
 
 			if (errors.empty()) {
+				FrameAnnotations::OnDataLoaded();
+
 				auto& shaderCache = SIE::ShaderCache::Instance();
 				shaderCache.menuLoaded = true;
 				while (shaderCache.IsCompiling() && !shaderCache.backgroundCompilation) {

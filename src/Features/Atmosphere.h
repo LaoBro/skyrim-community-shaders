@@ -1,5 +1,7 @@
 #pragma once
+#include "State.h"
 #include "Util.h"
+#include "Buffer.h"
 #include "Feature.h"
 using namespace std;
 static const float PI = 3.1415926535;
@@ -20,6 +22,11 @@ struct Atmosphere : Feature
 
 	virtual inline std::string GetName() { return "Atmosphere"; }
 	virtual inline std::string GetShortName() { return "Atmosphere"; }
+	inline std::string_view GetShaderDefineName() override { return "Atmosphere"; }
+
+	bool HasShaderDefine(RE::BSShader::Type shaderType) override;
+
+	bool SupportsVR() override { return false; };
 
 	virtual void SetupResources();
 	virtual void Reset();
@@ -91,7 +98,7 @@ struct Atmosphere : Feature
 	struct CPUData {
 		//CPU only
 		float Latitude = 0.5;
-		float AverageElevation = 0.4;
+		float AverageElevation = 0.2;
 		float MinSunAngle = 0.0;
 		float DateBias = 284;
 		float3 SunTransmittance;
@@ -117,12 +124,12 @@ struct Atmosphere : Feature
 		float RayleighDensity  = 1;
 		float MieDensity = 2;
 		float OzoneDensity = 2;
-		float FogDensity = 5;
+		float FogDensity = 50;
 		float RayleighHeight = 8;
 		float MieHeight = 1.2;
 		float OzoneCenter = 25;
 		float OzoneWidth = 25;
-		float FogHeight = 4;
+		float FogHeight = 0.03;
 		float GroundAlbedo[3] = {0.3, 0.3, 0.3};
 		//GPU only
 		float BottomRadius2;
@@ -165,6 +172,7 @@ struct Atmosphere : Feature
 		}
 
 		float4 GetDensity(float height) {
+			height = max(height, 0.0f);
 		return {
 			exp(-height / RayleighHeight) * RayleighDensity,
 			exp(-height / MieHeight) * MieDensity,
@@ -176,7 +184,7 @@ struct Atmosphere : Feature
 		float3 Density2Extinction(float4 Density) {
 			return Density.x * float3(5.8e-3f, 13.5e-3f, 33.1e-3f) + 
 				Density.y * float3(3.996e-3f + 4.440e-3f) + 
-				Density.z * float3(3.996e-3f) + 
+				float3(Density.z)+ 
 				Density.w * float3(0.650e-3f, 1.881e-3f, 0.085e-3f);
 		}
 
@@ -191,7 +199,7 @@ struct Atmosphere : Feature
 			float EndWidth = sqrt(TopRadius2 - TriangleHeight2);
 
 			static const int SampleCount = 32;
-			float SampleLength = (EndWidth - StartWidth) / float(SampleCount);
+			float SampleLength = max(EndWidth - StartWidth, 0.0f) / float(SampleCount);
 			float TriangleWidth = StartWidth + SampleLength * 0.5f;
 			float4 TotalDensity = float4(0,0,0,0);
 
@@ -203,6 +211,9 @@ struct Atmosphere : Feature
 			}
 			float3 TotalExtinction = Density2Extinction(TotalDensity);
 			float3 Transmittance = Extinction2Transmittance(TotalExtinction, SampleLength);
+			Transmittance.x = min(Transmittance.x, 1.0f);
+			Transmittance.y = min(Transmittance.y, 1.0f);
+			Transmittance.z = min(Transmittance.z, 1.0f);
 			return Transmittance;
 		}
 
@@ -402,7 +413,8 @@ struct Atmosphere : Feature
 			return;
 		}
 
-		auto context = RE::BSGraphics::Renderer::GetSingleton()->GetRuntimeData().context;
+		//auto context = RE::BSGraphics::Renderer::GetSingleton()->GetRuntimeData().context;
+		auto& context = State::GetSingleton()->context;
 		
 		if (settings.NeedUpdateLut) {
 			//TransmittanceLut
@@ -417,26 +429,26 @@ struct Atmosphere : Feature
 			context->Dispatch(32, 32, 1);
 		}
 		//AerialPerspectiveLut
-		context->CSSetShader(AerialPerspectiveLutCS, nullptr, 0);
-		context->CSSetShaderResources(0, 1, &TransmittanceLutSRV);
-		context->CSSetShaderResources(1, 1, &MultiScatteringLutSRV);
-		context->CSSetUnorderedAccessViews(0, 1, &AerialPerspectiveLutUAV, nullptr);
-		context->Dispatch(1, 16, 32);
+		//context->CSSetShader(AerialPerspectiveLutCS, nullptr, 0);
+		//context->CSSetShaderResources(0, 1, &TransmittanceLutSRV);
+		//context->CSSetShaderResources(1, 1, &MultiScatteringLutSRV);
+		//context->CSSetUnorderedAccessViews(0, 1, &AerialPerspectiveLutUAV, nullptr);
+		//context->Dispatch(1, 16, 32);
 		//SkyViewLut
 		context->CSSetShader(SkyViewLutCS, nullptr, 0);
+		context->CSSetShaderResources(0, 1, &TransmittanceLutSRV);
+		context->CSSetShaderResources(1, 1, &MultiScatteringLutSRV);
 		context->CSSetUnorderedAccessViews(0, 1, &SkyViewLutUAV, nullptr);
-		context->CSSetShaderResources(2, 1, &AerialPerspectiveLutSRV);
 		context->Dispatch(128, 2, 1);
 		
 		context->CSSetUnorderedAccessViews(0, 1, &NullUAV, nullptr);
-		context->CSSetShaderResources(0, 1, &NullSRV);
-		context->CSSetShaderResources(1, 1, &NullSRV);
+		//context->CSSetShaderResources(0, 1, &NullSRV);
+		//context->CSSetShaderResources(1, 1, &NullSRV);
 		context->PSSetShaderResources(41, 1, &SkyViewLutSRV);
-		context->PSSetShaderResources(42, 1, &AerialPerspectiveLutSRV);
-		context->VSSetShaderResources(42, 1, &AerialPerspectiveLutSRV);
-		//context->PSSetShaderResources(43, 1, &TransmittanceLutSRV);
-		context->PSSetShaderResources(43, 1, &MultiScatteringLutSRV);
-		context->VSSetSamplers(0, 1, &ComputeSampler);
+		context->PSSetShaderResources(42, 1, &MultiScatteringLutSRV);
+		//context->PSSetShaderResources(42, 1, &AerialPerspectiveLutSRV);
+		//context->VSSetShaderResources(42, 1, &AerialPerspectiveLutSRV);
+		//context->VSSetSamplers(0, 1, &ComputeSampler);
 
 	}
 
