@@ -1,70 +1,70 @@
 struct VS_INPUT
 {
-	float4 Position									: POSITION0;
-	float2 TexCoord									: TEXCOORD0;
-	float4 Normal									: NORMAL0;
-	float4 Color									: COLOR0;
-	float4 InstanceData1							: TEXCOORD4;
-	float4 InstanceData2							: TEXCOORD5;
-	float4 InstanceData3							: TEXCOORD6;
-	float4 InstanceData4							: TEXCOORD7;
+	float4 Position : POSITION0;
+	float2 TexCoord : TEXCOORD0;
+	float4 Normal : NORMAL0;
+	float4 Color : COLOR0;
+	float4 InstanceData1 : TEXCOORD4;
+	float4 InstanceData2 : TEXCOORD5;
+	float4 InstanceData3 : TEXCOORD6;
+	float4 InstanceData4 : TEXCOORD7;
 };
 
 struct VS_OUTPUT
 {
-	float4 HPosition								: SV_POSITION0;
-	float4 VertexColor								: COLOR0;
-	float3 TexCoord									: TEXCOORD0;
-	float3 ViewSpacePosition						: TEXCOORD1;
+	float4 HPosition : SV_POSITION0;
+	float4 VertexColor : COLOR0;
+	float3 TexCoord : TEXCOORD0;
+	float3 ViewSpacePosition : TEXCOORD1;
 #if defined(RENDER_DEPTH)
-	float2 Depth									: TEXCOORD2;
+	float2 Depth : TEXCOORD2;
 #endif
-	float4 WorldPosition							: POSITION1;
-	float4 PreviousWorldPosition					: POSITION2;
-	float3 ViewDirectionVec 						: POSITION3;
-	float3 VertexNormal 					        : POSITION4;
+	float4 WorldPosition : POSITION1;
+	float4 PreviousWorldPosition : POSITION2;
+	float3 ViewDirectionVec : POSITION3;
+	float3 VertexNormal : POSITION4;
 };
 
-cbuffer PerGeometry									: register(b2)
+cbuffer PerGeometry : register(b2)
 {
-	row_major float4x4 WorldViewProj				: packoffset(c0);
-	row_major float4x4 WorldView					: packoffset(c4);
-	row_major float4x4 World						: packoffset(c8);
-	row_major float4x4 PreviousWorld				: packoffset(c12);
-	float4 FogNearColor								: packoffset(c16);
-	float3 WindVector								: packoffset(c17);
-	float WindTimer 								: packoffset(c17.w);
-	float3 DirLightDirection						: packoffset(c18);
-	float PreviousWindTimer 						: packoffset(c18.w);
-	float3 DirLightColor							: packoffset(c19);
-	float AlphaParam1 								: packoffset(c19.w);
-	float3 AmbientColor								: packoffset(c20);
-	float AlphaParam2 								: packoffset(c20.w);
-	float3 ScaleMask								: packoffset(c21);
-	float ShadowClampValue 							: packoffset(c21.w);
+	row_major float4x4 WorldViewProj : packoffset(c0);
+	row_major float4x4 WorldView : packoffset(c4);
+	row_major float4x4 World : packoffset(c8);
+	row_major float4x4 PreviousWorld : packoffset(c12);
+	float4 FogNearColor : packoffset(c16);
+	float3 WindVector : packoffset(c17);
+	float WindTimer : packoffset(c17.w);
+	float3 DirLightDirection : packoffset(c18);
+	float PreviousWindTimer : packoffset(c18.w);
+	float3 DirLightColor : packoffset(c19);
+	float AlphaParam1 : packoffset(c19.w);
+	float3 AmbientColor : packoffset(c20);
+	float AlphaParam2 : packoffset(c20.w);
+	float3 ScaleMask : packoffset(c21);
+	float ShadowClampValue : packoffset(c21.w);
 }
 
 cbuffer PerFrame : register(b3)
 {
-	float4  			EyePosition;
-	row_major float3x4 	DirectionalAmbient;
-	float 				SunlightScale;
-	float 				Glossiness;
-	float 				SpecularStrength;
-	float 				SubsurfaceScatteringAmount;
-	bool 				EnableDirLightFix;
-	bool 				EnablePointLights;
+	float4 EyePosition;
+	row_major float3x4 DirectionalAmbient;
+	float SunlightScale;
+	float Glossiness;
+	float SpecularStrength;
+	float SubsurfaceScatteringAmount;
+	bool EnableDirLightFix;
+	bool EnablePointLights;
 	float pad0;
 	float pad1;
 }
 
 #ifdef VSHADER
 
-#ifdef GRASS_COLLISION
-	#include "RunGrass\\GrassCollision.hlsli"
-#endif
+#	ifdef GRASS_COLLISION
+#		include "RunGrass\\GrassCollision.hlsli"
+#	endif
 
-cbuffer cb7											: register(b7)
+cbuffer cb7 : register(b7)
 {
 	float4 cb7[1];
 }
@@ -74,11 +74,10 @@ cbuffer cb8 : register(b8)
 	float4 cb8[240];
 }
 
-#define M_PI  3.1415925 // PI
-#define M_2PI 6.283185 // PI * 2
+#	define M_PI 3.1415925  // PI
+#	define M_2PI 6.283185  // PI * 2
 
-const static float4x4 M_IdentityMatrix =
-{
+const static float4x4 M_IdentityMatrix = {
 	{ 1, 0, 0, 0 },
 	{ 0, 1, 0, 0 },
 	{ 0, 0, 1, 0 },
@@ -95,7 +94,7 @@ float4 GetMSPosition(VS_INPUT input, float windTimer, float3x3 world3x3)
 	float windTmp1 = sin(M_PI * windAngleSin);
 	float windTmp2 = sin(M_2PI * windAngleSin);
 	float windPower = WindVector.z * (((windTmp1 + windTmp2) * 0.3 + windTmp3) *
-		(0.5 * (input.Color.w * input.Color.w)));
+										 (0.5 * (input.Color.w * input.Color.w)));
 
 	float3 inputPosition = input.Position.xyz * (input.InstanceData4.yyy * ScaleMask.xyz + float3(1, 1, 1));
 	float3 InstanceData4 = mul(world3x3, inputPosition);
@@ -117,17 +116,17 @@ VS_OUTPUT main(VS_INPUT input)
 
 	float4 msPosition = GetMSPosition(input, WindTimer, world3x3);
 
-#ifdef GRASS_COLLISION
+#	ifdef GRASS_COLLISION
 	float3 displacement = GetDisplacedPosition(msPosition.xyz, input.Color.w);
 	msPosition.xyz += displacement;
-#endif
+#	endif
 
 	float4 projSpacePosition = mul(WorldViewProj, msPosition);
 	vsout.HPosition = projSpacePosition;
 
-#if defined(RENDER_DEPTH)
+#	if defined(RENDER_DEPTH)
 	vsout.Depth = projSpacePosition.zw;
-#endif
+#	endif
 
 	float perInstanceFade = dot(cb8[(asuint(cb7[0].x) >> 2)].xyzw, M_IdentityMatrix[(asint(cb7[0].x) & 3)].xyzw);
 	float distanceFade = 1 - saturate((length(projSpacePosition.xyz) - AlphaParam1) / AlphaParam2);
@@ -144,9 +143,9 @@ VS_OUTPUT main(VS_INPUT input)
 
 	float4 previousMsPosition = GetMSPosition(input, PreviousWindTimer, world3x3);
 
-#ifdef GRASS_COLLISION
+#	ifdef GRASS_COLLISION
 	previousMsPosition.xyz += displacement;
-#endif
+#	endif
 
 	vsout.PreviousWorldPosition = mul(PreviousWorld, previousMsPosition);
 
@@ -166,42 +165,42 @@ typedef VS_OUTPUT PS_INPUT;
 struct PS_OUTPUT
 {
 #if defined(RENDER_DEPTH)
-	float4 PS										: SV_Target0;
+	float4 PS : SV_Target0;
 #else
-	float4 Albedo									: SV_Target0;
-	float2 MotionVectors							: SV_Target1;
-	float4 Normal									: SV_Target2;
+	float4 Albedo : SV_Target0;
+	float2 MotionVectors : SV_Target1;
+	float4 Normal : SV_Target2;
 #endif
 };
 
 #ifdef PSHADER
-SamplerState SampBaseSampler						: register(s0);
-SamplerState SampShadowMaskSampler					: register(s1);
+SamplerState SampBaseSampler : register(s0);
+SamplerState SampShadowMaskSampler : register(s1);
 
-Texture2D<float4> TexBaseSampler					: register(t0);
-Texture2D<float4> TexShadowMaskSampler				: register(t1);
+Texture2D<float4> TexBaseSampler : register(t0);
+Texture2D<float4> TexShadowMaskSampler : register(t1);
 
-cbuffer AlphaTestRefCB								: register(b11)
+cbuffer AlphaTestRefCB : register(b11)
 {
 	float AlphaTestRefRS : packoffset(c0);
 }
 
 cbuffer PerFrame : register(b12)
 {
-	float4 UnknownPerFrame1[12]						: packoffset(c0);
-	row_major float4x4 ScreenProj					: packoffset(c12);
-	row_major float4x4 PreviousScreenProj			: packoffset(c16);
+	float4 UnknownPerFrame1[12] : packoffset(c0);
+	row_major float4x4 ScreenProj : packoffset(c12);
+	row_major float4x4 PreviousScreenProj : packoffset(c16);
 };
 
 struct StructuredLight
 {
-	float4  color;
-	float4  positionWS;
-	float4  positionVS;
-	float   radius;
-	bool    shadow;
-	float   mask;
-	bool    active;
+	float4 color;
+	float4 positionWS;
+	float4 positionVS;
+	float radius;
+	bool shadow;
+	float mask;
+	bool active;
 };
 
 StructuredBuffer<StructuredLight> lights : register(t17);
@@ -250,7 +249,8 @@ float3x3 CalculateTBN(float3 N, float3 p, float2 uv)
 	return float3x3(T * invmax, B * invmax, N);
 }
 
-PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
+PS_OUTPUT main(PS_INPUT input, bool frontFace
+			   : SV_IsFrontFace)
 {
 	PS_OUTPUT psout;
 
@@ -263,25 +263,22 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	float4 baseColor;
 	if (complex) {
 		baseColor = TexBaseSampler.Sample(SampBaseSampler, float2(input.TexCoord.x, input.TexCoord.y * 0.5));
-	}
-	else
-	{
+	} else {
 		baseColor = TexBaseSampler.Sample(SampBaseSampler, input.TexCoord.xy);
 	}
 
-#if defined(RENDER_DEPTH) || defined(DO_ALPHA_TEST)
+#	if defined(RENDER_DEPTH) || defined(DO_ALPHA_TEST)
 	float diffuseAlpha = input.VertexColor.w * baseColor.w;
-	if ((diffuseAlpha - AlphaTestRefRS) < 0)
-	{
+	if ((diffuseAlpha - AlphaTestRefRS) < 0) {
 		discard;
 	}
-#endif
+#	endif
 
-#if defined(RENDER_DEPTH)
+#	if defined(RENDER_DEPTH)
 	// Depth
 	psout.PS.xyz = input.Depth.xxx / input.Depth.yyy;
 	psout.PS.w = diffuseAlpha;
-#else
+#	else
 
 	float4 specColor = complex ? TexBaseSampler.Sample(SampBaseSampler, float2(input.TexCoord.x, 0.5 + input.TexCoord.y * 0.5)) : 1;
 	float4 shadowColor = TexShadowMaskSampler.Load(int3(input.HPosition.xy, 0));
@@ -305,20 +302,20 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	float3 worldNormal = normalize(input.VertexNormal);
 
 	// // Swaps direction of the backfaces otherwise they seem to get lit from the wrong direction.
-	if (!frontFace) worldNormal.xyz = -worldNormal.xyz;
+	if (!frontFace)
+		worldNormal.xyz = -worldNormal.xyz;
 
 	if (complex) {
 		float3 normalColor = float4(TransformNormal(specColor.xyz), 1);
 		// Inverting x as well as y seems to look more correct.
 		normalColor.xy = -normalColor.xy;
-		// world-space -> tangent-space -> world-space. 
+		// world-space -> tangent-space -> world-space.
 		// This is because we don't have pre-computed tangents.
 		worldNormal.xyz = normalize(mul(normalColor.xyz, CalculateTBN(worldNormal.xyz, -viewDirection, input.TexCoord.xy)));
 	}
 
 	float3 dirLightColor = DirLightColor.xyz;
-	if (EnableDirLightFix)
-	{
+	if (EnableDirLightFix) {
 		dirLightColor *= SunlightScale;
 	}
 
@@ -354,8 +351,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 		uint counter = 0;
 		uint light_count, dummy;
 		lights.GetDimensions(light_count, dummy);
-		for (uint light_index = 0; light_index < light_count; light_index++)
-		{
+		for (uint light_index = 0; light_index < light_count; light_index++) {
 			StructuredLight light = lights[light_index];
 			if (light.active) {
 				float3 lightDirection = light.positionWS.xyz - input.WorldPosition.xyz;
@@ -405,7 +401,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	psout.Albedo.xyz = color;
 	psout.Albedo.w = 1;
 
-#endif
+#	endif
 	return psout;
 }
 #endif

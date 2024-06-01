@@ -1,13 +1,13 @@
 #include "Deferred.h"
 #include "State.h"
 #include "Util.h"
+#include <Features/Atmosphere.h>
 #include <Features/CloudShadows.h>
+#include <Features/DynamicCubemaps.h>
 #include <Features/ScreenSpaceGI.h>
 #include <Features/ScreenSpaceShadows.h>
 #include <Features/SubsurfaceScattering.h>
 #include <Features/TerrainOcclusion.h>
-#include <Features/Atmosphere.h>
-#include <Features/DynamicCubemaps.h>
 #include <ShaderCache.h>
 #include <VariableRateShading.h>
 
@@ -510,7 +510,6 @@ void Deferred::DeferredPasses()
 		auto EnvTextureSRV = DynamicCubemaps::GetSingleton()->envTexture->srv.get();
 		context->CSSetShaderResources(11, 1, &EnvTextureSRV);
 	}
-
 
 	{
 		{

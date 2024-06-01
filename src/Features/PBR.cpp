@@ -1,8 +1,8 @@
 #include "PBR.h"
 
+#include "Atmosphere.h"
 #include "State.h"
 #include "Util.h"
-#include "Atmosphere.h"
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	PBR::Settings,
@@ -20,8 +20,7 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	AmbientSpecular,
 	SSSAmount,
 	WaterRoughness,
-	WaterReflection
-	)
+	WaterReflection)
 
 void PBR::DrawSettings()
 {
@@ -49,7 +48,8 @@ void PBR::DrawSettings()
 	ImGui::EndTabItem();
 }
 
-struct alignas(16) MergedPerFrame {
+struct alignas(16) MergedPerFrame
+{
 	PBR::Settings Settings;
 	Atmosphere::AtmospherePerFrame AtmospherePerFrameData;
 };
@@ -58,7 +58,7 @@ MergedPerFrame MergedPerFrameData;
 auto AtmosphereSingleton = Atmosphere::GetSingleton();
 
 void PBR::ModifyLighting(const RE::BSShader*, const uint32_t)
-{	
+{
 	if (UpdatedPerFrame) {
 		return;
 	}
@@ -69,7 +69,7 @@ void PBR::ModifyLighting(const RE::BSShader*, const uint32_t)
 	RE::NiTransform& dalcTransform = state.directionalAmbientTransform;
 	Util::StoreTransform3x4NoScale(settings.WorldDirectionalAmbient, dalcTransform);
 	AtmosphereSingleton->UpdatePerFrame();
-	
+
 	MergedPerFrameData.AtmospherePerFrameData = AtmosphereSingleton->PerFrameData;
 	MergedPerFrameData.Settings = settings;
 
@@ -95,7 +95,6 @@ void PBR::ModifyLighting(const RE::BSShader*, const uint32_t)
 		context->VSSetSamplers(0, 1, NormalSampler);
 	}
 	*/
-	
 }
 
 void PBR::Draw(const RE::BSShader* shader, const uint32_t descriptor)
@@ -157,15 +156,12 @@ void PBR::BSLightingShader_SetupGeometry_Before(RE::BSRenderPass* Pass)
 	if (auto ShaderProperty = Pass->shaderProperty) {
 		//ModelSpaceNormals = shaderProperty -> flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kModelSpaceNormals);
 		if (ShaderProperty->GetMaterialType() == RE::BSShaderMaterial::Type::kLighting) {
-
 			if (auto ExtraData = ShaderProperty->GetExtraData("PBR")) {
 				perPassData.PBRTexture = true;
 			}
-			
 
 			if (auto lightingMaterial = (RE::BSLightingShaderMaterialBase*)(ShaderProperty->material)) {
-				if (auto TextureSet = lightingMaterial->GetTextureSet())
-				{
+				if (auto TextureSet = lightingMaterial->GetTextureSet()) {
 					if (auto TexturePathChar = TextureSet->GetTexturePath(RE::BSTextureSet::Texture::kDiffuse)) {
 						std::string TexturePathString = TexturePathChar;
 						perPassData.IsCloth = TexturePathString.contains("clothes") && settings.EnableClothShader;

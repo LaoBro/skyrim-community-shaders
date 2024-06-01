@@ -189,8 +189,7 @@ Texture2D<float4> TexShadowMaskSampler : register(t17);
 #		include "DynamicCubemaps/DynamicCubemaps.hlsli"
 #	endif
 
-
-#include "PBR.hlsli"
+#	include "PBR.hlsli"
 
 PS_OUTPUT main(PS_INPUT input, bool frontFace
 			   : SV_IsFrontFace)
@@ -253,9 +252,8 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace
 		// world-space -> tangent-space -> world-space.
 		// This is because we don't have pre-computed tangents.
 		worldNormal.xyz = normalize(mul(normalColor.xyz, CalculateTBN(worldNormal.xyz, -input.WorldPosition.xyz, input.TexCoord.xy)));
-	}
-	else {
-		worldNormal = float3(0,0,1);
+	} else {
+		worldNormal = float3(0, 0, 1);
 	}
 
 	float3 dirLightColor = SunColor.xyz;

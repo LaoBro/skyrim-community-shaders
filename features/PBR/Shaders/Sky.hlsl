@@ -179,14 +179,14 @@ PS_OUTPUT main(PS_INPUT input)
 	discard;
 	psout.Color.xyz = (input.Color.xyz * baseColor.xyz + PParams.yyy) + noiseGrad;
 	psout.Color.w = baseColor.w * input.Color.w;
-#			else                // Sky
+#			else  // Sky
 	psout.Color.xyz = (PParams.yyy + input.Color.xyz) + noiseGrad;
 	psout.Color.w = input.Color.w;
 	//Atmosphere
 	psout.Color.xyz = SampleSkyViewLut(input.WorldPosition.xyz);
 	psout.Color.w = 1.0;
 
-#			endif  // TEX
+#			endif               // TEX
 #		elif defined(MOONMASK)  // MoonAndStarsMask
 	psout.Color.xyzw = baseColor;
 	if (baseColor.w - AlphaTestRefRS.x < 0) {
@@ -196,7 +196,7 @@ PS_OUTPUT main(PS_INPUT input)
 #		elif defined(HORIZFADE)  // Stars
 	psout.Color.xyz = float3(1.5, 1.5, 1.5) * (input.Color.xyz * baseColor.xyz + PParams.yyy);
 	psout.Color.w = input.TexCoord2.x * (baseColor.w * input.Color.w);
-#		else // Clouds
+#		else                     // Clouds
 	discard;
 	psout.Color.w = input.Color.w * baseColor.w;
 	psout.Color.xyz = input.Color.xyz * baseColor.xyz + PParams.yyy;

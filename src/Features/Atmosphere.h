@@ -1,14 +1,13 @@
 #pragma once
-#include "State.h"
-#include "Util.h"
 #include "Buffer.h"
 #include "Feature.h"
+#include "State.h"
+#include "Util.h"
 using namespace std;
 static const float PI = 3.1415926535;
 
 struct Atmosphere : Feature
 {
-
 	static Atmosphere* GetSingleton()
 	{
 		static Atmosphere singleton;
@@ -17,7 +16,6 @@ struct Atmosphere : Feature
 
 	static void InstallHooks()
 	{
-
 	}
 
 	virtual inline std::string GetName() { return "Atmosphere"; }
@@ -40,16 +38,16 @@ struct Atmosphere : Feature
 
 	virtual void RestoreDefaultSettings();
 
-	#pragma region // Setting and PerFrame data
+#pragma region  // Setting and PerFrame data
 
 	struct alignas(16) AtmospherePerFrame
-	{	
+	{
 		float3 SunColor;
 		uint Outdoor = 1;
 
 		float3 SunDirection;
 		uint UseAerialPerspectiveLut;
-		
+
 		float3 ClampSunDirection;
 		float ViewHeight;
 
@@ -90,12 +88,12 @@ struct Atmosphere : Feature
 		float FogHeight;
 		float InvFogHeight;
 		float FogDensity;
-
 	};
 
 	AtmospherePerFrame PerFrameData;
 
-	struct CPUData {
+	struct CPUData
+	{
 		//CPU only
 		float Latitude = 0.5;
 		float AverageElevation = 0.2;
@@ -121,7 +119,7 @@ struct Atmosphere : Feature
 		//About the Lut
 		float BottomRadius = 6360;
 		float AtmosphereThickness = 100;
-		float RayleighDensity  = 1;
+		float RayleighDensity = 1;
 		float MieDensity = 2;
 		float OzoneDensity = 2;
 		float FogDensity = 50;
@@ -130,7 +128,7 @@ struct Atmosphere : Feature
 		float OzoneCenter = 25;
 		float OzoneWidth = 25;
 		float FogHeight = 0.03;
-		float GroundAlbedo[3] = {0.3, 0.3, 0.3};
+		float GroundAlbedo[3] = { 0.3, 0.3, 0.3 };
 		//GPU only
 		float BottomRadius2;
 		float TopRadius;
@@ -140,7 +138,8 @@ struct Atmosphere : Feature
 		float ViewRadius2;
 		float InvOzoneWidth;
 
-		void UpdateSunDirection() {
+		void UpdateSunDirection()
+		{
 			if (auto calendar = RE::Calendar::GetSingleton()) {
 				float time = calendar->GetCurrentGameTime();
 				float Beta = PI * (0.5f + 0.13027f * sin(2 * PI * (DateBias + time) / 365));
@@ -152,48 +151,50 @@ struct Atmosphere : Feature
 				float SinLatitude = sin(Latitude);
 				float CosLatitude = cos(Latitude);
 
-				float3 SunCenter = {0, CosLatitude, SinLatitude};
+				float3 SunCenter = { 0, CosLatitude, SinLatitude };
 				float SunCenterDistance = cos(Beta);
 				SunCenter *= SunCenterDistance;
 
 				SunDirection = float3(
 					SinPhi,
 					CosPhi * SinLatitude,
-					CosPhi * CosLatitude
-				);
+					CosPhi * CosLatitude);
 				float SunRadius = sin(Beta);
 				SunDirection *= SunRadius;
 				SunDirection += SunCenter;
 				SunDirection.Normalize();
-			}
-			else {
+			} else {
 				SunDirection = float3(1, 0, 0);
 			}
 		}
 
-		float4 GetDensity(float height) {
+		float4 GetDensity(float height)
+		{
 			height = max(height, 0.0f);
-		return {
-			exp(-height / RayleighHeight) * RayleighDensity,
-			exp(-height / MieHeight) * MieDensity,
-			exp(-height / FogHeight) * FogDensity,
-			(1.0f - min(abs(height - OzoneCenter) * InvOzoneWidth, 1.0f)) * OzoneDensity
-			} ;
+			return {
+				exp(-height / RayleighHeight) * RayleighDensity,
+				exp(-height / MieHeight) * MieDensity,
+				exp(-height / FogHeight) * FogDensity,
+				(1.0f - min(abs(height - OzoneCenter) * InvOzoneWidth, 1.0f)) * OzoneDensity
+			};
 		}
 
-		float3 Density2Extinction(float4 Density) {
-			return Density.x * float3(5.8e-3f, 13.5e-3f, 33.1e-3f) + 
-				Density.y * float3(3.996e-3f + 4.440e-3f) + 
-				float3(Density.z)+ 
-				Density.w * float3(0.650e-3f, 1.881e-3f, 0.085e-3f);
+		float3 Density2Extinction(float4 Density)
+		{
+			return Density.x * float3(5.8e-3f, 13.5e-3f, 33.1e-3f) +
+			       Density.y * float3(3.996e-3f + 4.440e-3f) +
+			       float3(Density.z) +
+			       Density.w * float3(0.650e-3f, 1.881e-3f, 0.085e-3f);
 		}
 
-		float3 Extinction2Transmittance(float3 Extinction, float SegmentLength) {
+		float3 Extinction2Transmittance(float3 Extinction, float SegmentLength)
+		{
 			Extinction *= -SegmentLength;
 			return float3(exp(Extinction.x), exp(Extinction.y), exp(Extinction.z));
 		}
 
-		float3 GetSunTransmittance() {
+		float3 GetSunTransmittance()
+		{
 			float StartWidth = ViewRadius * SunDirection.z;
 			float TriangleHeight2 = ViewRadius2 - StartWidth * StartWidth;
 			float EndWidth = sqrt(TopRadius2 - TriangleHeight2);
@@ -201,7 +202,7 @@ struct Atmosphere : Feature
 			static const int SampleCount = 32;
 			float SampleLength = max(EndWidth - StartWidth, 0.0f) / float(SampleCount);
 			float TriangleWidth = StartWidth + SampleLength * 0.5f;
-			float4 TotalDensity = float4(0,0,0,0);
+			float4 TotalDensity = float4(0, 0, 0, 0);
 
 			for (int i = 0; i < SampleCount; i++) {
 				float SampleRadius = sqrt(TriangleHeight2 + TriangleWidth * TriangleWidth);
@@ -217,8 +218,8 @@ struct Atmosphere : Feature
 			return Transmittance;
 		}
 
-		void ToGPUData(AtmospherePerFrame *PerFrameData1) {
-
+		void ToGPUData(AtmospherePerFrame* PerFrameData1)
+		{
 			Outdoor = false;
 			auto accumulator = RE::BSGraphics::BSShaderAccumulator::GetCurrentAccumulator();
 			auto SunLight = skyrim_cast<RE::NiDirectionalLight*>(accumulator->GetRuntimeData().activeShadowSceneNode->GetRuntimeData().sunLight->light.get());
@@ -259,14 +260,15 @@ struct Atmosphere : Feature
 			PerFrameData1->MieAnisotropy = MieAnisotropy;
 			PerFrameData1->GroundAlbedo = float3(GroundAlbedo);
 
-			PerFrameData1->ViewHeight = ViewHeight;;
+			PerFrameData1->ViewHeight = ViewHeight;
+			;
 			ViewRadius = ViewHeight + BottomRadius;
 			PerFrameData1->ViewRadius = ViewRadius;
 			ViewRadius2 = ViewRadius * ViewRadius;
 			PerFrameData1->ViewRadius2 = ViewRadius2;
-			
+
 			float Vhorizon = sqrt(ViewRadius * ViewRadius - BottomRadius2);
-			float CosBeta = Vhorizon / ViewRadius;				// GroundToHorizonCos
+			float CosBeta = Vhorizon / ViewRadius;  // GroundToHorizonCos
 			float Beta = acos(CosBeta);
 			PerFrameData1->Beta = Beta;
 			PerFrameData1->ZenithHorizonAngle = PI - Beta;
@@ -295,8 +297,7 @@ struct Atmosphere : Feature
 			auto imageSpaceManager = RE::ImageSpaceManager::GetSingleton();
 			if (REL::Module::IsVR()) {
 				imageSpaceManager->GetVRRuntimeData().data.baseData.hdr.sunlightScale = 1;
-			}
-			else {
+			} else {
 				imageSpaceManager->GetRuntimeData().data.baseData.hdr.sunlightScale = 1;
 			}
 
@@ -321,19 +322,18 @@ struct Atmosphere : Feature
 					}
 				}
 			}*/
-
 		}
 	};
 
 	CPUData settings;
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region // Sun direction & transmittance
+#pragma region  // Sun direction & transmittance
 
-	#pragma endregion
+#pragma endregion
 
-	#pragma region // DX11 resource
+#pragma region  // DX11 resource
 
 	D3D11_TEXTURE2D_DESC DefaultTex2dDesc = {
 		.Width = 32,
@@ -341,7 +341,7 @@ struct Atmosphere : Feature
 		.MipLevels = 1,
 		.ArraySize = 1,
 		.Format = DXGI_FORMAT_R32G32B32A32_FLOAT,
-		.SampleDesc = {.Count = 1, .Quality = 0},
+		.SampleDesc = { .Count = 1, .Quality = 0 },
 		.Usage = D3D11_USAGE_DEFAULT,
 		.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS,
 		.CPUAccessFlags = 0,
@@ -393,29 +393,32 @@ struct Atmosphere : Feature
 	ID3D11ComputeShader* MultiScatteringLutCS = nullptr;
 	ID3D11ComputeShader* SkyViewLutCS = nullptr;
 	ID3D11ComputeShader* AerialPerspectiveLutCS = nullptr;
-	#pragma endregion
+#pragma endregion
 
-	ID3D11ComputeShader* GetAtmosphereCS(const wchar_t Path[]) {
+	ID3D11ComputeShader* GetAtmosphereCS(const wchar_t Path[])
+	{
 		return (ID3D11ComputeShader*)Util::CompileShader(Path, {}, "cs_5_0");
 	}
 
-	float4 ToFloat4(float3 Value) {
-		return {Value.x, Value.y, Value.z, 0};
+	float4 ToFloat4(float3 Value)
+	{
+		return { Value.x, Value.y, Value.z, 0 };
 	}
 
-	void UpdatePerFrame() {
+	void UpdatePerFrame()
+	{
 		settings.ToGPUData(&PerFrameData);
 	}
 
-	void ComputePerFrame() {
-
+	void ComputePerFrame()
+	{
 		if (!settings.Outdoor) {
 			return;
 		}
 
 		//auto context = RE::BSGraphics::Renderer::GetSingleton()->GetRuntimeData().context;
 		auto& context = State::GetSingleton()->context;
-		
+
 		if (settings.NeedUpdateLut) {
 			//TransmittanceLut
 			context->CSSetSamplers(15, 1, &ComputeSampler);
@@ -440,7 +443,7 @@ struct Atmosphere : Feature
 		context->CSSetShaderResources(1, 1, &MultiScatteringLutSRV);
 		context->CSSetUnorderedAccessViews(0, 1, &SkyViewLutUAV, nullptr);
 		context->Dispatch(128, 2, 1);
-		
+
 		context->CSSetUnorderedAccessViews(0, 1, &NullUAV, nullptr);
 		//context->CSSetShaderResources(0, 1, &NullSRV);
 		//context->CSSetShaderResources(1, 1, &NullSRV);
@@ -449,7 +452,5 @@ struct Atmosphere : Feature
 		//context->PSSetShaderResources(42, 1, &AerialPerspectiveLutSRV);
 		//context->VSSetShaderResources(42, 1, &AerialPerspectiveLutSRV);
 		//context->VSSetSamplers(0, 1, &ComputeSampler);
-
 	}
-
 };

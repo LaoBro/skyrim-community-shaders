@@ -217,7 +217,7 @@ struct PS_OUTPUT
 
 #ifdef PSHADER
 
-SamplerState ReflectionSampler : register(s0); //最邻近
+SamplerState ReflectionSampler : register(s0);  //最邻近
 SamplerState RefractionSampler : register(s1);
 SamplerState DisplacementSampler : register(s2);
 SamplerState CubeMapSampler : register(s3);
@@ -480,7 +480,6 @@ float3 GetWaterDiffuseColor(PS_INPUT input, float3 normal, float3 viewDirection,
 #		endif
 }
 
-
 float3 GetWaterDiffuseColor2(PS_INPUT input, float3 normal, float3 viewDirection,
 	float4 distanceMul, float refractionsDepthFactor, float fresnel, float distanceFactor)
 {
@@ -516,7 +515,6 @@ float3 GetWaterDiffuseColor2(PS_INPUT input, float3 normal, float3 viewDirection
 			DynamicResolutionParams2.xy * input.HPosition.xy * VPOSOffset.xy + VPOSOffset.zw;
 	}
 
-	
 #			endif
 
 	float distanceMul4 = distanceMul2 * 4;
@@ -541,7 +539,7 @@ float3 GetWaterDiffuseColor2(PS_INPUT input, float3 normal, float3 viewDirection
 
 	float3 ScatterColor = lerp(ShallowColor.xyz, DeepColor.xyz, saturate(distanceMul2 - 1));
 	FinalColor = lerp(ScatterColor, FinalColor, exp((refractionDiffuseColor.xyz - 1) * distanceMul3 * 2));
-	float F = FastfresnelSchlick((saturate(-viewDirection.z)),0.02);
+	float F = FastfresnelSchlick((saturate(-viewDirection.z)), 0.02);
 
 	//FinalColor *= (1 - fresnel);
 
@@ -561,7 +559,6 @@ float3 GetWaterDiffuseColor2(PS_INPUT input, float3 normal, float3 viewDirection
 	return lerp(ShallowColor.xyz, DeepColor.xyz, fresnel) * GetLdotN(normal);
 #		endif
 }
-
 
 float3 GetSunColor(float3 normal, float3 viewDirection)
 {
@@ -590,15 +587,14 @@ float3 GetSunColor2(float3 normal, float3 viewDirection, float fresnel, float Ro
 	if (shaderDescriptors[0].PixelShaderDescriptor & _Interior)
 		return 0.0.xxx;
 
-
 	float a = Roughness * Roughness;
 	float a2 = a * a;
 	float3 N = normal;
 	float3 V = -viewDirection;
 	float3 L = SunDirection.xyz;
 	float3 H = normalize(V + L);
-    float NoL = saturate(dot(N, L));
-    float LoH = saturate(dot(L, H));
+	float NoL = saturate(dot(N, L));
+	float LoH = saturate(dot(L, H));
 	float NoH = saturate(dot(N, H));
 	float NoV = saturate(dot(N, V));
 	float D = bxdf_ggx_D_invert(NoH, a2);
@@ -606,7 +602,7 @@ float3 GetSunColor2(float3 normal, float3 viewDirection, float fresnel, float Ro
 	float F = FastfresnelSchlick(LoH, 0.04);
 	float sunMul = pow(saturate(dot(normal, float3(-0.099, -0.099, 0.99))), ShallowColor.w);
 
-	float kS = F * a2 * 0.5 / (Vis * D  + MinimalPrecision);
+	float kS = F * a2 * 0.5 / (Vis * D + MinimalPrecision);
 	kS += sunMul * FastfresnelSchlick(NoV, FresnelRI.x);
 
 	return kS * NoL * SunColor.xyz;
@@ -653,7 +649,7 @@ PS_OUTPUT main(PS_INPUT input)
 	float viewSurfaceAngle = dot(depthAdjustedViewDirection, ReflectPlane.xyz);
 
 	float planeMul = (1 - ReflectPlane.w / viewSurfaceAngle);
-	distanceMul = 
+	distanceMul =
 		float4(planeMul * float3(length(depthAdjustedViewDirection).xx, abs(viewSurfaceAngle).x) / FogParam.z, depth);
 #			endif
 #		endif
@@ -710,8 +706,8 @@ PS_OUTPUT main(PS_INPUT input)
 
 	float3 finalColorPreFog =
 		diffuseColor + specularColor * specularFraction + sunColor;
-		//lerp(diffuseColor, specularColor, specularFraction) + sunColor;
-	float3 finalColor = 
+	//lerp(diffuseColor, specularColor, specularFraction) + sunColor;
+	float3 finalColor =
 		lerp(finalColorPreFog, input.FogParam.xyz, input.FogParam.w);
 
 #			endif
